@@ -1,14 +1,12 @@
-CATCH YOUR BUS — INTEGRATED FRONT-END PROTOTYPE v2
+BN5213: CATCH YOUR BUS — INTEGRATED FRONT-END PROTOTYPE
 
 START HERE
-1. Extract the ZIP file.
-2. Keep index.html, styles.css, app.js and the assets folder together.
-3. Open index.html in Chrome or Edge.
-4. Complete all four Safety Check items.
-5. In Warm-up, click the bus once to simulate gaze lock, then click it again to simulate a foot press.
-6. In the main game, click a bus once to simulate gaze selection and click the same bus again to simulate EMG confirmation.
-7. The demo movement adapter automatically reports a completed sit-to-stand after six seconds. The repetition counter only increases after that completion event.
-8. Complete 10 repetitions in each of 3 sets. A 60-second rest is required between sets. The Continue button appears only when the timer reaches zero. After set 3, the app opens the Dashboard.
+1. Open index.html in Chrome or Edge.
+2. Complete all four Safety Check items.
+3. In Warm-up, click the bus once to simulate gaze lock, then click it again to simulate a foot press.
+4. In the main game, click a bus once to simulate gaze selection and click the same bus again to simulate EMG confirmation.
+5. The demo movement adapter automatically reports a completed sit-to-stand after six seconds. The repetition counter only increases after that completion event.
+6. Complete 10 repetitions in each of 3 sets. A 60-second rest is required between sets. The Continue button appears only when the timer reaches zero. After set 3, the app opens the Dashboard.
 
 FAST TEST MODE
 Open index.html?fast=1 in the browser address bar to shorten the memory display, demo movement cycle and rest break for UI testing. The regular app uses a 3-second memory cue, a 6-second demo movement cycle and 60-second rests.
