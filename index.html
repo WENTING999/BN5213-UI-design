@@ -1,0 +1,212 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#F4F1E9">
+  <title>Catch Your Bus</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="app-frame">
+    <header class="app-header" id="appHeader">
+      <a class="brand" href="#" aria-label="Catch Your Bus home" id="brandHome">
+        <span class="brand-icon" aria-hidden="true">
+          <svg viewBox="0 0 32 32" fill="none"><rect x="6" y="4" width="20" height="23" rx="4" stroke="currentColor" stroke-width="2.3"/><path d="M8 11h16M10 7.5h12M10 16h4m4 0h4M10 22h3m6 0h3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="11" cy="27" r="2" fill="currentColor"/><circle cx="21" cy="27" r="2" fill="currentColor"/></svg>
+        </span>
+        <span class="brand-wordmark">Catch Your Bus</span>
+      </a>
+      <div class="header-right">
+        <span class="prototype-tag"><i></i> FRONT-END PROTOTYPE</span>
+        <span class="header-step" id="headerStep">SESSION PREPARATION</span>
+      </div>
+    </header>
+
+    <!-- 1. Safety check -->
+    <section class="screen safety-screen" id="safetyScreen" aria-labelledby="safetyTitle">
+      <div class="safety-layout">
+        <div class="safety-intro">
+          <p class="eyebrow">BEFORE YOUR SESSION</p>
+          <h1 id="safetyTitle">Let’s get<br>ready.</h1>
+          <p class="intro-copy">A few simple checks before your exercise session.</p>
+          <img class="elder-illustration" src="assets/older-adult-safety-soft.png" alt="An older adult seated comfortably at home before exercise">
+        </div>
+        <div class="safety-panel">
+          <div class="section-kicker"><span>01</span><span>PRE-SESSION CHECK</span></div>
+          <h2>Before you begin</h2>
+          <p class="panel-lead">Please confirm each item before starting.</p>
+          <div class="check-list" id="safetyChecklist">
+            <label class="check-row">
+              <span class="check-icon icon-heart" aria-hidden="true"><svg viewBox="0 0 32 32" fill="none"><path d="M16 26s-10-5.7-10-13a5.5 5.5 0 0 1 10-3 5.5 5.5 0 0 1 10 3c0 7.3-10 13-10 13Z" stroke="currentColor" stroke-width="1.8"/><path d="M7 16h5l2-4 3.5 8 2-4H25" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+              <span class="check-copy"><strong>Blood pressure checked</strong><small>Check your blood pressure before exercising.</small></span>
+              <input type="checkbox" name="safety" value="bloodPressure" aria-label="Blood pressure checked">
+              <span class="custom-check" aria-hidden="true"></span>
+            </label>
+            <label class="check-row">
+              <span class="check-icon" aria-hidden="true"><svg viewBox="0 0 32 32" fill="none"><path d="M8 18V8.5A2.5 2.5 0 0 1 10.5 6h11A2.5 2.5 0 0 1 24 8.5V18M7 18h18v5H7zM10 23v4m12-4v4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+              <span class="check-copy"><strong>Chair or bench is secure</strong><small>Make sure it is stable and has support (e.g. armrest).</small></span>
+              <input type="checkbox" name="safety" value="secureSeat" aria-label="Chair or bench is secure">
+              <span class="custom-check" aria-hidden="true"></span>
+            </label>
+            <label class="check-row">
+              <span class="check-icon" aria-hidden="true"><svg viewBox="0 0 32 32" fill="none"><circle cx="12" cy="10" r="4" stroke="currentColor" stroke-width="1.8"/><circle cx="23" cy="12" r="3" stroke="currentColor" stroke-width="1.8"/><path d="M4.5 25c.7-5 3.2-7.5 7.5-7.5s6.8 2.5 7.5 7.5M19 19c1-.9 2.2-1.4 3.8-1.4 3.1 0 4.6 2 5.2 5.4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></span>
+              <span class="check-copy"><strong>Someone is nearby</strong><small>Have someone around, especially for your first sessions.</small></span>
+              <input type="checkbox" name="safety" value="someoneNearby" aria-label="Someone is nearby">
+              <span class="custom-check" aria-hidden="true"></span>
+            </label>
+            <label class="check-row">
+              <span class="check-icon" aria-hidden="true"><svg viewBox="0 0 32 32" fill="none"><circle cx="16" cy="16" r="11" stroke="currentColor" stroke-width="1.8"/><path d="M11.5 19c1.2 1.7 2.7 2.5 4.5 2.5s3.3-.8 4.5-2.5M11.5 12.5h.1m9 .0h.1" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg></span>
+              <span class="check-copy"><strong>Feeling well today</strong><small>Do not start if you feel dizzy, unwell or uncomfortable.</small></span>
+              <input type="checkbox" name="safety" value="feelingWell" aria-label="Feeling well today">
+              <span class="custom-check" aria-hidden="true"></span>
+            </label>
+          </div>
+          <div class="safety-action">
+            <span class="check-hint" id="safetyHint">Complete all four checks to continue.</span>
+            <button class="button button-primary" id="startSessionButton" disabled>Start Session <span aria-hidden="true">→</span></button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 2. Warm-up interaction tutorial -->
+    <section class="screen warmup-screen hidden" id="warmupScreen" aria-labelledby="warmupTitle">
+      <div class="screen-kicker"><span>02</span><span>QUICK PRACTICE</span></div>
+      <h1 id="warmupTitle">Let’s try it.</h1>
+      <p class="screen-subtitle">Look at the bus, then confirm your selection with a foot press.</p>
+      <div class="warmup-stage">
+        <button class="warmup-bus bus-card" id="warmupBus" type="button" aria-label="Practice selecting and confirming the bus">
+          <span class="bus-art"><img src="assets/citaro-front-master.png" alt="Singapore-style green city bus"><span class="route-display"><span class="route-number"></span></span></span>
+          <span class="checkmark" aria-hidden="true">✓</span>
+        </button>
+        <div class="warmup-status" id="warmupStatus" aria-live="polite">
+          <span class="status-dot"></span><span>Waiting for gaze selection</span>
+        </div>
+      </div>
+      <p class="interaction-note" id="warmupNote">Select the bus once to lock your gaze target.</p>
+    </section>
+
+    <!-- 3. Main game -->
+    <section class="screen game-screen hidden" id="gameScreen" aria-labelledby="gameTitle">
+      <div class="game-heading">
+        <div class="game-heading-top">
+          <div>
+            <p class="game-eyebrow">CATCH YOUR BUS</p>
+            <h1 id="gameTitle">Remember Your Bus!</h1>
+          </div>
+          <div class="set-progress-labels"><span id="setLabel">SET 1 / 3</span><strong id="repLabel">0 / 10</strong></div>
+        </div>
+        <div class="progress-track"><span id="progressFill"></span></div>
+      </div>
+      <div class="memory-panel" id="memoryPanel">
+        <p class="memory-number" id="memoryNumber">33</p>
+      </div>
+      <div class="find-panel hidden" id="findPanel">
+        <div class="bus-grid" id="busGrid" role="group" aria-label="Nine bus choices"></div>
+      </div>
+      <div class="feedback-toast" id="feedbackToast" aria-live="assertive"></div>
+      <div class="game-footnote">Look at your chosen bus, then confirm your selection.</div>
+    </section>
+
+    <!-- 4. Rest timer -->
+    <section class="screen rest-screen hidden" id="restScreen" aria-labelledby="restTitle">
+      <div class="rest-layout">
+        <div class="rest-illustration-wrap">
+          <img src="assets/older-adult-rest-illustration.png" alt="An older adult resting comfortably at home" class="rest-illustration">
+        </div>
+        <div class="rest-copy">
+          <p class="eyebrow">SET <span id="completedSetLabel">1</span> COMPLETE</p>
+          <h1 id="restTitle">Take a short break.</h1>
+          <p class="rest-description">Relax and take your time. Your next set will begin when the timer finishes.</p>
+          <div class="timer-block"><span class="timer-caption">TIME TO REST</span><strong id="restCountdown">01:00</strong></div>
+          <p class="rest-ready-note" id="restReadyNote">The Continue button will appear when your break is over.</p>
+          <button class="button button-primary hidden" id="continueSetButton" type="button">Continue <span aria-hidden="true">→</span></button>
+        </div>
+      </div>
+    </section>
+
+    <!-- 5. Shared data dashboard -->
+    <section class="screen dashboard-screen hidden" id="dashboardScreen" aria-labelledby="dashboardTitle">
+      <header class="dashboard-topbar">
+        <div class="dashboard-brand"><span class="brand-icon"><svg viewBox="0 0 32 32" fill="none"><rect x="6" y="4" width="20" height="23" rx="4" stroke="currentColor" stroke-width="2.3"/><path d="M8 11h16M10 7.5h12M10 16h4m4 0h4M10 22h3m6 0h3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></span><span>Catch Your Bus</span></div>
+        <div class="dashboard-top-actions"><span class="prototype-tag"><i></i> TRAINING RECORD</span><button class="button button-outline" id="newSessionButton" type="button">New session</button></div>
+      </header>
+      <main class="dashboard-main">
+        <div class="dashboard-toolbar">
+          <div class="dashboard-tabs" role="group" aria-label="Dashboard view">
+            <button class="dashboard-tab active" id="patientTab" aria-pressed="true" type="button">My Progress</button>
+            <button class="dashboard-tab" id="clinicalTab" aria-pressed="false" type="button">Clinical Review</button>
+          </div>
+          <span class="session-date" id="dashboardDate">SESSION SUMMARY</span>
+        </div>
+
+        <section class="dashboard-view active" id="patientView" aria-labelledby="dashboardTitle">
+          <div class="dashboard-heading-row">
+            <div><p class="eyebrow">YOUR TRAINING OVERVIEW</p><h1 id="dashboardTitle">Your progress</h1><p class="dashboard-lead">A simple view of your recent Catch Your Bus sessions.</p></div>
+            <div class="dashboard-actions"><select class="period-select" id="patientPeriod" aria-label="Activity period"><option value="4">Last 4 weeks</option><option value="8">Last 8 weeks</option></select><button class="button button-outline" id="printPatient" type="button">Print summary</button></div>
+          </div>
+          <div class="metric-strip" id="patientMetricStrip">
+            <div class="metric"><span class="metric-label">Bus memory</span><strong class="metric-value" id="patientMemory">—</strong><span class="metric-note" id="patientMemoryNote">No completed session yet</span></div>
+            <div class="metric"><span class="metric-label">Average search time</span><strong class="metric-value" id="patientSearch">—</strong><span class="metric-note" id="patientSearchNote">Time to locate the target bus</span></div>
+            <div class="metric"><span class="metric-label">Correct boardings</span><strong class="metric-value" id="patientBoardings">—</strong><span class="metric-note" id="patientBoardingsNote">Correct selections followed by a completed sit-to-stand</span></div>
+          </div>
+          <div class="patient-content-grid">
+            <section class="dashboard-panel activity-panel">
+              <div class="panel-heading"><div><h2>Your activity</h2><p>Completed training sessions over time</p></div><span class="panel-inline-note" id="activityRangeLabel">LAST 4 WEEKS</span></div>
+              <div class="activity-chart" id="patientActivityChart"><div class="empty-chart">Your completed sessions will appear here.</div></div>
+              <div class="chart-footnote"><span class="legend-dot"></span> Completed sessions</div>
+            </section>
+            <section class="dashboard-panel latest-panel">
+              <div class="panel-heading"><div><h2>Latest session</h2><p id="latestSessionDate">No completed session</p></div><span class="session-state" id="latestSessionState">NOT STARTED</span></div>
+              <div class="latest-summary" id="latestSummary"><strong>—</strong><span>Complete a session to see your results.</span></div>
+              <div class="latest-details" id="latestDetails"></div>
+            </section>
+          </div>
+          <div class="movement-section-heading"><div><h2>Movement measures</h2><p>Additional measures appear when validated sensor data is available.</p></div></div>
+          <div class="movement-measures" id="patientMovementMeasures">
+            <div class="movement-measure"><span class="movement-measure-title">Stand control</span><span class="pending-state">Awaiting movement data integration</span></div>
+            <div class="movement-measure"><span class="movement-measure-title">Left / right leg balance</span><span class="pending-state">Awaiting bilateral sensor data integration</span></div>
+          </div>
+          <p class="dashboard-disclaimer">This summary is for training feedback and does not provide a diagnosis or replace clinical assessment.</p>
+        </section>
+
+        <section class="dashboard-view" id="clinicalView" aria-labelledby="clinicalTitle">
+          <div class="dashboard-heading-row">
+            <div><p class="eyebrow">PERFORMANCE MONITORING</p><h1 id="clinicalTitle">Clinical review</h1><p class="dashboard-lead">Review memory, visual search and movement outcomes across sessions.</p></div>
+            <div class="dashboard-actions"><span class="participant-chip"><span class="participant-avatar">P</span><span>Current participant · Local prototype</span></span><button class="button button-primary" id="exportReport" type="button">Export session data</button></div>
+          </div>
+          <div class="metric-strip clinical-metric-strip">
+            <div class="metric"><span class="metric-label">Bus memory accuracy</span><strong class="metric-value" id="clinicalMemory">—</strong><span class="metric-note">Correct target selections</span></div>
+            <div class="metric"><span class="metric-label">Average search time</span><strong class="metric-value" id="clinicalSearch">—</strong><span class="metric-note">From search display to gaze lock</span></div>
+            <div class="metric"><span class="metric-label">Correct boardings</span><strong class="metric-value" id="clinicalBoardings">—</strong><span class="metric-note">Correct selections with completed movement</span></div>
+          </div>
+          <div class="clinical-chart-grid">
+            <section class="dashboard-panel chart-panel">
+              <div class="panel-heading"><div><h2>Memory &amp; boarding outcomes</h2><p>Session-level results</p></div></div>
+              <div class="clinical-bars" id="clinicalAccuracyChart"><div class="empty-chart">Session results will appear here.</div></div>
+              <div class="chart-legend"><span><i class="legend-dot pale"></i> Memory accuracy</span><span><i class="legend-dot"></i> Correct boardings</span></div>
+            </section>
+            <section class="dashboard-panel chart-panel">
+              <div class="panel-heading"><div><h2>Visual search time</h2><p>Average time to locate the target bus</p></div></div>
+              <div class="search-trend" id="clinicalSearchChart"><div class="empty-chart">Search-time trends will appear here.</div></div>
+              <div class="chart-footnote"><span class="line-legend"></span> Average search time (seconds)</div>
+            </section>
+          </div>
+          <div class="movement-section-heading"><div><h2>Movement assessment</h2><p>Sensor-dependent measures are shown only when supplied by the connected processing module.</p></div></div>
+          <div class="movement-measures clinical-movement" id="clinicalMovementMeasures">
+            <div class="movement-measure"><span class="movement-measure-title">Stand control</span><span class="pending-state">Awaiting EMG / movement data integration</span></div>
+            <div class="movement-measure"><span class="movement-measure-title">Left / right leg balance</span><span class="pending-state">Awaiting bilateral sensor data integration</span></div>
+          </div>
+          <section class="dashboard-panel session-table-panel">
+            <div class="panel-heading"><div><h2>Session history</h2><p>Session-level performance for review</p></div><span class="sample-indicator">LOCAL SESSION DATA</span></div>
+            <div class="table-scroll"><table><thead><tr><th>Session</th><th>Completed reps</th><th>Memory</th><th>Avg. search</th><th>Correct boardings</th><th>Record</th></tr></thead><tbody id="sessionTableBody"><tr><td colspan="6" class="empty-table">No completed sessions have been recorded.</td></tr></tbody></table></div>
+          </section>
+          <p class="dashboard-disclaimer">Clinical review is an interface for training data inspection. It does not generate a diagnosis or clinical recommendation.</p>
+        </section>
+      </main>
+    </section>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

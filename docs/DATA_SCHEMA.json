@@ -1,0 +1,45 @@
+{
+  "schemaVersion": 1,
+  "session": {
+    "id": "string",
+    "status": "in_progress | completed",
+    "startedAt": "ISO-8601 timestamp",
+    "completedAt": "ISO-8601 timestamp | null",
+    "protocol": {
+      "sets": 3,
+      "repsPerSet": 10,
+      "restSeconds": 60
+    },
+    "safetyChecks": ["bloodPressure", "secureSeat", "someoneNearby", "feelingWell"],
+    "warmup": {
+      "gazeLockedAt": "ISO-8601 timestamp | null",
+      "footPressConfirmedAt": "ISO-8601 timestamp | null"
+    },
+    "attempts": [
+      {
+        "id": "string",
+        "setNumber": "integer",
+        "repNumber": "integer",
+        "targetRoute": "string",
+        "selectedRoute": "string | null",
+        "isCorrect": "boolean | null",
+        "searchTimeMs": "number | null",
+        "memoryShownAt": "ISO-8601 timestamp",
+        "findShownAt": "ISO-8601 timestamp | null",
+        "gazeLockedAt": "ISO-8601 timestamp | null",
+        "emgConfirmedAt": "ISO-8601 timestamp | null",
+        "repCompletedAt": "ISO-8601 timestamp | null",
+        "movement": {
+          "standControl": "processor-defined object | optional",
+          "leftLeg": "processor-defined object | optional",
+          "rightLeg": "processor-defined object | optional",
+          "bilateralBalance": "processor-defined object | optional",
+          "qualityFlag": "processor-defined | optional",
+          "source": "string | optional"
+        }
+      }
+    ],
+    "completedReps": "integer",
+    "movementMetrics": ["processor-supplied per-repetition records"]
+  }
+}
