@@ -1,0 +1,582 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pupil Workload Monitor (PupilSense)</title>
+<style>
+  :root{--bg:#0f1115;--panel:#181b22;--line:#2a2f3a;--text:#e8eaf0;--muted:#9aa1b1;
+        --low:#2fbf71;--med:#f2b134;--high:#e5484d;--accent:#5b8def}
+  *{box-sizing:border-box}
+  body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--text)}
+  header{padding:14px 22px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+  header h1{font-size:18px;margin:0;font-weight:600}
+  header .status{margin-left:auto;font-size:13px;color:var(--muted)}
+  main{display:grid;grid-template-columns:minmax(320px,420px) 1fr;gap:18px;padding:18px 22px}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px}
+  .panel h2{font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin:0 0 12px}
+  .vidwrap{position:relative;border-radius:10px;overflow:hidden;background:#000;aspect-ratio:4/3}
+  video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;transform:scaleX(-1)}
+  .eyes{display:flex;gap:10px;margin-top:10px;align-items:center}
+  .eyes figure{margin:0;flex:1;text-align:center}
+  .eyes img{width:100%;image-rendering:pixelated;border-radius:6px;background:#000;aspect-ratio:2/1;object-fit:contain}
+  .eyes figcaption{font-size:12px;color:var(--muted);margin-top:4px}
+  .steps{display:flex;flex-direction:column;gap:10px;margin-top:14px}
+  .step{display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px solid var(--line);border-radius:10px}
+  .step .n{width:24px;height:24px;border-radius:50%;display:grid;place-items:center;background:#262b36;font-size:12px;flex:none}
+  .step.done .n{background:var(--low);color:#000}
+  .step.fail .n{background:var(--high);color:#fff}
+  .step .txt{flex:1;font-size:14px}
+  .step .txt small{display:block;color:var(--muted);font-size:12px}
+  .step .res{display:block;font-size:12px;margin-top:3px}
+  button{background:var(--accent);color:#fff;border:0;border-radius:8px;padding:8px 12px;font-size:13px;cursor:pointer}
+  button.ghost{background:#262b36}
+  button:disabled{opacity:.4;cursor:not-allowed}
+  .levelcard{display:flex;align-items:center;gap:24px;flex-wrap:wrap}
+  .badge{min-width:240px;text-align:center;padding:26px 18px;border-radius:14px;font-size:44px;font-weight:800;letter-spacing:.04em;background:#262b36;color:var(--muted);transition:background .4s,color .4s}
+  .badge.low{background:var(--low);color:#05210f}.badge.medium{background:var(--med);color:#2b1d00}.badge.high{background:var(--high);color:#fff}
+  .badge.paused{font-size:22px}
+  .gauge{flex:1;min-width:220px}
+  .bar{height:14px;border-radius:7px;position:relative;opacity:.85}
+  .needle{position:absolute;top:-6px;width:4px;height:26px;background:#fff;border-radius:2px;left:0;transition:left .5s}
+  .gauge .val{font-size:13px;color:var(--muted);margin-top:10px}
+  canvas#chart{width:100%;height:200px;display:block;margin-top:10px}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  td,th{padding:7px 6px;border-bottom:1px solid var(--line);text-align:right}
+  td:first-child,th:first-child{text-align:left}
+  th{color:var(--muted);font-weight:500}
+  .warn{color:var(--med);font-size:13px;min-height:18px;margin-top:8px;line-height:1.4}
+  .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+  label{font-size:13px;color:var(--muted);min-width:170px}
+  input[type=number]{width:70px;background:#0f1115;color:var(--text);border:1px solid var(--line);border-radius:6px;padding:4px}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+  #task{position:fixed;inset:0;display:none;flex-direction:column;align-items:center;justify-content:center;z-index:10}
+  #task .cross{font-size:64px;line-height:1;font-weight:300}
+  #task .msg{font-size:24px;margin-top:28px;min-height:32px;text-align:center;padding:0 20px}
+  #task .count{position:absolute;top:18px;right:24px;font-size:16px}
+  #task .sub{position:absolute;bottom:22px;font-size:14px;opacity:.7}
+  .note{font-size:12px;color:var(--muted);line-height:1.5;margin-top:10px}
+  @media (max-width:900px){main{grid-template-columns:1fr}.grid2{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<header>
+  <h1>Pupil Workload Monitor</h1>
+  <span style="font-size:12px;color:var(--muted)">engine: PupilSense / EyeDentify (CC BY-NC 4.0)</span>
+  <span class="status" id="status">Connecting to pupil server…</span>
+</header>
+
+<main>
+  <section class="panel">
+    <h2>Camera</h2>
+    <div class="vidwrap"><video id="video" autoplay playsinline muted></video></div>
+    <div class="eyes">
+      <figure><img id="eyeL" alt=""><figcaption>left_eye crop · <span id="mmL">–</span></figcaption></figure>
+      <figure><img id="eyeR" alt=""><figcaption>right_eye crop · <span id="mmR">–</span></figcaption></figure>
+    </div>
+    <div class="warn" id="quality"></div>
+
+    <div class="steps">
+      <div class="step" id="s0"><div class="n">1</div>
+        <div class="txt">Start camera<small>Face centred, steady artificial light, same distance every time</small><span class="res" id="r0"></span></div>
+        <button id="btnCam" disabled>Start</button></div>
+      <div class="step" id="s1"><div class="n">2</div>
+        <div class="txt">Light check <em>(does the model see your pupil?)</em><small>White screen then black screen, <span id="lblChk">12</span> s each</small><span class="res" id="r1"></span></div>
+        <button id="btnChk" disabled>Run</button></div>
+      <div class="step" id="s2"><div class="n">3</div>
+        <div class="txt">Record baseline<small>Relax, look at the cross (<span id="lblBase">60</span> s)</small><span class="res" id="r2"></span></div>
+        <button id="btnBase" disabled>Record</button></div>
+      <div class="step" id="s3"><div class="n">4</div>
+        <div class="txt">Hard reference task <em>(recommended)</em><small id="refDesc">Digit-span memory: hear digits, hold them, type them back · same grey screen</small><span class="res" id="r3"></span></div>
+        <button id="btnRef" disabled>Record</button></div>
+      <div class="step" id="s4"><div class="n">5</div>
+        <div class="txt">Monitor workload<small>Live LOW / MEDIUM / HIGH from pupil size</small></div>
+        <button id="btnMon" disabled>Start</button></div>
+    </div>
+    <div class="row" style="margin-top:12px">
+      <button class="ghost" id="btnLoad" disabled>Use saved baseline</button>
+      <button class="ghost" id="btnCsv" disabled>Export CSV</button>
+    </div>
+    <p class="note">Frames go only to the pupil server on this computer (localhost).
+      Levels are relative to <b>your own baseline</b>. The pupil also reacts to light, so keep
+      room light and screen brightness the same as during the baseline.</p>
+  </section>
+
+  <section style="display:flex;flex-direction:column;gap:18px">
+    <div class="panel">
+      <h2>Current workload</h2>
+      <div class="levelcard">
+        <div class="badge" id="badge">—</div>
+        <div class="gauge">
+          <div class="bar" id="bar"><div class="needle" id="needle"></div></div>
+          <div class="row" style="justify-content:space-between;font-size:12px;color:var(--muted);margin-top:6px">
+            <span>LOW</span><span>MEDIUM</span><span>HIGH</span></div>
+          <div class="val" id="idxval">Workload index: —</div>
+          <div class="val" id="mode">Mode: —</div>
+        </div>
+      </div>
+      <canvas id="chart"></canvas>
+    </div>
+
+    <div class="grid2">
+      <div class="panel">
+        <h2>Signals (last <span id="lblWin">10</span> s)</h2>
+        <table><tbody id="feat"></tbody></table>
+      </div>
+      <div class="panel">
+        <h2>Settings</h2>
+        <div class="row"><label>Light check (s per colour)</label><input type="number" id="cfgChk" value="12" min="6" max="60"></div>
+        <div class="row" style="margin-top:8px"><label>Baseline (s)</label><input type="number" id="cfgBase" value="60" min="20" max="300"></div>
+        <div class="row" style="margin-top:8px"><label>Reference task</label>
+          <select id="cfgTask" style="background:#0f1115;color:var(--text);border:1px solid var(--line);border-radius:6px;padding:4px">
+            <option value="digits" selected>Digit-span memory</option>
+            <option value="count7">Count back by 7</option>
+          </select></div>
+        <div class="row" style="margin-top:8px"><label>· digits per trial / trials</label>
+          <input type="number" id="cfgDigits" value="8" min="4" max="12"> <input type="number" id="cfgTrials" value="4" min="1" max="10"></div>
+        <div class="row" style="margin-top:8px"><label>· hold time (s) / present digits</label>
+          <input type="number" id="cfgHoldMem" value="8" min="3" max="20">
+          <select id="cfgPresent" style="background:#0f1115;color:var(--text);border:1px solid var(--line);border-radius:6px;padding:4px">
+            <option value="audio" selected>spoken</option><option value="visual">on screen</option></select></div>
+        <div class="row" style="margin-top:8px"><label>· count-back-by-7 duration (s)</label><input type="number" id="cfgRef" value="45" min="20" max="300"></div>
+        <div class="row" style="margin-top:8px"><label>Analysis window (s)</label><input type="number" id="cfgWin" value="10" min="3" max="60"></div>
+        <div class="row" style="margin-top:8px"><label>LOW → MEDIUM at</label><input type="number" id="cfgT1" value="0.33" step="0.05"></div>
+        <div class="row" style="margin-top:8px"><label>MEDIUM → HIGH at</label><input type="number" id="cfgT2" value="0.66" step="0.05"></div>
+        <div class="row" style="margin-top:8px"><label>Hold before switching (s)</label><input type="number" id="cfgHold" value="5" min="0" max="30"></div>
+        <div class="row" style="margin-top:8px"><label>Frames per second</label><input type="number" id="cfgFps" value="10" min="2" max="30"></div>
+        <p class="note">Index 0 = baseline pupil, 1 = pupil during your hard task.
+          Without a reference task: index = (pupil − baseline) / (3 × baseline SD).</p>
+      </div>
+    </div>
+  </section>
+</main>
+
+<div id="task">
+  <div class="count" id="taskCount"></div>
+  <div class="cross">+</div>
+  <div class="msg" id="taskMsg"></div>
+  <input id="recall" autocomplete="off" inputmode="numeric" style="display:none;margin-top:18px;font-size:22px;width:260px;text-align:center;padding:6px;border-radius:8px;border:1px solid #555;background:#8a8a8a;color:#111">
+  <div class="msg" id="taskBig" style="font-size:40px;font-weight:600;min-height:48px;margin-top:6px"></div>
+  <div class="sub">Keep your eyes on the cross · head still · Esc to cancel</div>
+</div>
+
+<script>
+// ================================================================ setup ====
+const $ = id => document.getElementById(id);
+const video = $('video');
+const grab = document.createElement('canvas'); grab.width = 640; grab.height = 480;
+const gctx = grab.getContext('2d');
+const now = () => performance.now() / 1000;
+const cfg = () => ({ chk:+$('cfgChk').value, base:+$('cfgBase').value, ref:+$('cfgRef').value, win:+$('cfgWin').value,
+                     t1:+$('cfgT1').value, t2:+$('cfgT2').value, hold:+$('cfgHold').value, fps:+$('cfgFps').value,
+                     task:$('cfgTask').value, digits:+$('cfgDigits').value, trials:+$('cfgTrials').value,
+                     memHold:+$('cfgHoldMem').value, present:$('cfgPresent').value });
+const setStatus = s => $('status').textContent = s;
+const mean = a => a.reduce((x, y) => x + y, 0) / (a.length || 1);
+const sd = a => { const m = mean(a); return Math.sqrt(mean(a.map(x => (x - m) ** 2))); };
+const median = a => { if (!a.length) return NaN; const b = [...a].sort((x, y) => x - y), k = b.length >> 1; return b.length % 2 ? b[k] : (b[k-1] + b[k]) / 2; };
+
+let ws = null, inflight = false, lastSend = 0, streaming = false, serverInfo = null;
+let samples = [];          // {t, face, blink, left, right, pupil, valid, lum, faceW, ms}
+let baseline = null, reference = null, check = null;
+let phase = 'idle', log = [], history = [], shownLevel = null, candLevel = null, candSince = 0;
+let exposureNote = '';
+
+// ============================================================ server ====
+async function connect() {
+  try { serverInfo = await fetch('/info').then(r => r.json()); } catch { serverInfo = null; }
+  ws = new WebSocket(`ws://${location.host}/ws`);
+  ws.onopen = () => { setStatus(`Server ready · ${serverInfo?.model ?? ''} on ${serverInfo?.gpu ?? serverInfo?.device ?? '?'}`); $('btnCam').disabled = false; };
+  ws.onclose = () => { setStatus('Pupil server disconnected — is pupil_server.py running? Retrying…'); inflight = false; setTimeout(connect, 2000); };
+  ws.onmessage = ev => { inflight = false; onResult(JSON.parse(ev.data)); };
+}
+connect();
+
+function pump() {
+  if (!streaming) return;
+  const c = cfg(), t = performance.now();
+  if (!inflight && ws?.readyState === 1 && t - lastSend >= 1000 / c.fps && video.readyState >= 2) {
+    lastSend = t; inflight = true;
+    // keep the camera's real aspect ratio (their app does the same with thumbnail()).
+    // Send at most 640 px wide — the server shrinks to <=640x480 anyway.
+    const vw = video.videoWidth, vh = video.videoHeight, s = Math.min(1, 640 / vw, 480 / vh);
+    const W = Math.round(vw * s), H = Math.round(vh * s);
+    if (grab.width !== W || grab.height !== H) { grab.width = W; grab.height = H; }
+    gctx.drawImage(video, 0, 0, W, H);
+    grab.toBlob(b => { if (b && ws.readyState === 1) ws.send(b); else inflight = false; }, 'image/jpeg', 0.92);
+  }
+  requestAnimationFrame(pump);
+}
+
+function onResult(r) {
+  if (r.error) { $('quality').textContent = 'Server error: ' + r.error; return; }
+  const t = now();
+  const vals = [r.left_mm, r.right_mm].filter(v => v !== null && v !== undefined && isFinite(v));
+  const pupil = vals.length ? mean(vals) : null;
+  // validity: face, no blink, plausible range, not a jump vs the last 2 s
+  let valid = r.face && !r.blink && pupil !== null && pupil > 1 && pupil < 9;
+  if (valid) {
+    const recent = samples.filter(s => s.valid && s.t > t - 2).map(s => s.pupil);
+    if (recent.length >= 5 && Math.abs(pupil - median(recent)) > 1.0) valid = false;
+  }
+  samples.push({ t, face: r.face, blink: r.blink, left: r.left_mm, right: r.right_mm, pupil, valid,
+                 lum: r.lum, faceW: r.face_w, ms: r.ms });
+  while (samples.length && samples[0].t < t - 600) samples.shift();
+  if (r.crops?.left_eye) $('eyeL').src = r.crops.left_eye;
+  if (r.crops?.right_eye) $('eyeR').src = r.crops.right_eye;
+  $('mmL').textContent = r.blink ? 'blink' : r.left_mm != null ? r.left_mm.toFixed(2) + ' mm' : '–';
+  $('mmR').textContent = r.blink ? 'blink' : r.right_mm != null ? r.right_mm.toFixed(2) + ' mm' : '–';
+  if (phase === 'idle' || phase === 'monitor') {
+    const fps = samples.filter(s => s.t > t - 3).length / 3;
+    setStatus(`${serverInfo?.model ?? ''} on ${serverInfo?.gpu ?? serverInfo?.device ?? '?'} · ${fps.toFixed(1)} fps · ${r.ms?.toFixed(0)} ms/frame ${exposureNote}`);
+  }
+}
+
+// ============================================================ camera ====
+$('btnCam').onclick = async () => {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ video: { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: 30 } });
+    video.srcObject = stream; await video.play();
+    streaming = true; requestAnimationFrame(pump);
+    done('s0'); $('btnCam').disabled = true;
+    ['btnChk', 'btnBase'].forEach(id => $(id).disabled = false);
+    $('btnLoad').disabled = !loadSaved(true);
+    setTimeout(() => lockExposure(stream.getVideoTracks()[0]), 2500);   // let auto-exposure settle first
+  } catch (e) { setStatus('Camera blocked: ' + e.message); }
+};
+
+async function lockExposure(track) {
+  try {
+    const caps = track.getCapabilities ? track.getCapabilities() : {};
+    const set = track.getSettings();
+    const adv = {};
+    if (caps.exposureMode?.includes('manual')) { adv.exposureMode = 'manual'; if (set.exposureTime) adv.exposureTime = set.exposureTime; }
+    if (caps.whiteBalanceMode?.includes('manual')) { adv.whiteBalanceMode = 'manual'; if (set.colorTemperature) adv.colorTemperature = set.colorTemperature; }
+    if (Object.keys(adv).length) { await track.applyConstraints({ advanced: [adv] }); exposureNote = '· exposure locked'; $('r0').textContent = 'Camera exposure locked ✓'; }
+    else { exposureNote = '· exposure auto'; $('r0').textContent = 'This camera does not allow locking exposure from the browser — keep lighting very stable.'; }
+  } catch { exposureNote = '· exposure auto'; $('r0').textContent = 'Could not lock exposure — keep lighting very stable.'; }
+}
+
+// ======================================================== analysis ====
+function windowStats(t0, t1) {
+  const w = samples.filter(s => s.t >= t0 && s.t <= t1);
+  const v = w.filter(s => s.valid).map(s => s.pupil);
+  const blinkEvents = w.reduce((n, s, i) => n + (s.blink && i > 0 && !w[i-1].blink ? 1 : 0), 0);
+  const lums = w.map(s => s.lum).filter(x => x != null), fws = w.map(s => s.faceW).filter(x => x != null);
+  return { pupil: median(v), n: w.length, validFrac: w.length ? v.length / w.length : 0,
+           blinkRate: blinkEvents / Math.max(t1 - t0, 1e-3) * 60,
+           lum: lums.length ? mean(lums) : NaN, faceW: fws.length ? mean(fws) : NaN,
+           left: median(w.filter(s => s.valid && s.left != null).map(s => s.left)),
+           right: median(w.filter(s => s.valid && s.right != null).map(s => s.right)) };
+}
+function blockSummary(t0, t1) {
+  const W = cfg().win, rows = [];
+  for (let a = t0; a + W <= t1 + 1e-6; a += 1) rows.push(windowStats(a, a + W));
+  if (!rows.length) rows.push(windowStats(t0, t1));
+  const p = rows.map(r => r.pupil).filter(isFinite);
+  const all = windowStats(t0, t1);
+  return { pupil: median(p), sd: Math.max(sd(p), 0.03), validFrac: all.validFrac, blinkRate: all.blinkRate,
+           lum: all.lum, faceW: all.faceW, n: all.n };
+}
+
+// ============================================================ blocks ====
+let taskTimer = null, cancelTask = null;
+function runBlock(seconds, message, bg = '#808080', fg = '#111') {
+  return new Promise((resolve, reject) => {
+    const el = $('task'); el.style.background = bg; el.style.color = fg;
+    el.style.display = 'flex'; $('taskMsg').textContent = message;
+    el.requestFullscreen?.().catch(() => {});
+    const start = now();
+    const finish = () => { clearInterval(taskTimer); el.style.display = 'none'; if (document.fullscreenElement) document.exitFullscreen().catch(() => {}); };
+    cancelTask = () => { finish(); reject(new Error('cancelled')); };
+    taskTimer = setInterval(() => {
+      const left = seconds - (now() - start);
+      $('taskCount').textContent = Math.max(0, Math.ceil(left)) + ' s';
+      if (left <= 0) { finish(); resolve({ start, end: now() }); }
+    }, 200);
+  });
+}
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && $('task').style.display === 'flex') cancelTask?.(); });
+const busy = on => ['btnChk', 'btnBase', 'btnRef', 'btnMon', 'btnLoad'].forEach(id => $(id).disabled = on || (id === 'btnRef' || id === 'btnMon' ? !baseline : false));
+
+// --- 2. light check: white vs black. A working pupil model MUST show a smaller pupil on white.
+$('btnChk').onclick = async () => {
+  const c = cfg(); phase = 'check'; busy(true); setStatus('Light check…');
+  try {
+    const w = await runBlock(c.chk, '', '#ffffff', '#000');
+    const b = await runBlock(c.chk, '', '#000000', '#555');
+    const W = windowStats(w.start + 4, w.end), B = windowStats(b.start + 4, b.end);
+    const diff = B.pupil - W.pupil;
+    check = { white: W.pupil, black: B.pupil, diff };
+    const verdict = !isFinite(diff) ? 'FAIL — no valid pupil readings (face/eyes not found?)'
+      : diff >= 0.3 ? 'PASS — the model responds to your pupil'
+      : diff >= 0.1 ? 'WEAK — small response; workload changes may be hard to see'
+      : 'FAIL — pupil did not get larger in the dark; the model is not tracking your pupil on this setup';
+    $('r1').textContent = `white ${W.pupil?.toFixed(2)} mm · black ${B.pupil?.toFixed(2)} mm · Δ ${isFinite(diff) ? diff.toFixed(2) : '–'} mm → ${verdict}`;
+    $('s1').classList.remove('done', 'fail'); $('s1').classList.add(diff >= 0.1 ? 'done' : 'fail');
+    setStatus('Light check finished');
+  } catch { setStatus('Light check cancelled'); }
+  phase = 'idle'; busy(false);
+};
+
+// --- 3. baseline
+$('btnBase').onclick = async () => {
+  const c = cfg(); if (c.base < c.win + 10) { setStatus('Baseline must be at least window + 10 s'); return; }
+  phase = 'baseline'; busy(true); setStatus('Recording baseline…');
+  try {
+    // 5 s grey lead-in so the pupil adapts to the grey screen, then record
+    const blk = await runBlock(c.base + 5, 'Relax. Just look at the cross.');
+    baseline = { ...blockSummary(blk.start + 5, blk.end), created: new Date().toISOString() };
+    reference = null; save();
+    const q = baseline.validFrac < 0.6 ? ` · only ${Math.round(baseline.validFrac * 100)}% valid frames — check face/eye visibility and redo` : '';
+    $('r2').textContent = `Baseline pupil ${baseline.pupil.toFixed(2)} ± ${baseline.sd.toFixed(2)} mm · ${baseline.blinkRate.toFixed(0)} blinks/min${q}`;
+    done('s2'); undone('s3'); $('r3').textContent = '';
+    setStatus('Baseline recorded');
+  } catch { setStatus('Baseline cancelled'); }
+  phase = 'idle'; busy(false);
+};
+
+// --- 4. hard reference task
+$('btnRef').onclick = async () => {
+  const c = cfg();
+  phase = 'reference'; busy(true); setStatus('Recording hard reference task…');
+  try {
+    let scoreText = '';
+    if (c.task === 'digits') {
+      const r = await runDigitSpan(c);
+      reference = { ...segmentSummary(r.segs), task: 'digit span', score: r.score };
+      scoreText = ` · recall ${r.score.correctTrials}/${r.score.trials} trials perfect, ${r.score.digitsCorrect}/${r.score.digitsTotal} digits`;
+      if (r.score.digitsCorrect / r.score.digitsTotal < 0.5) scoreText += ' (low — task may have been too hard, or attention drifted)';
+    } else {
+      const n0 = 700 + Math.floor(Math.random() * 300);
+      const blk = await runBlock(c.ref, `Count back by 7 from ${n0} — silently, as fast as you can`);
+      reference = { ...blockSummary(blk.start + 8, blk.end), task: 'count back by 7' };
+    }
+    const d = reference.pupil - baseline.pupil;
+    save();
+    if (!(d >= 0.05)) {
+      $('r3').textContent = `Pupil during task ${isFinite(reference.pupil) ? reference.pupil.toFixed(2) : '–'} mm (Δ ${isFinite(d) ? (d >= 0 ? '+' : '') + d.toFixed(2) : '–'} mm)${scoreText}. No clear dilation — using baseline-only mode instead.`;
+      $('s3').classList.remove('done'); $('s3').classList.add('fail');
+    } else {
+      $('r3').textContent = `Pupil during task ${reference.pupil.toFixed(2)} mm (Δ +${d.toFixed(2)} mm vs baseline)${scoreText} ✓`;
+      $('s3').classList.remove('fail'); done('s3');
+    }
+    setStatus('Reference recorded');
+  } catch (e) { setStatus(e.message === 'cancelled' ? 'Reference cancelled' : 'Reference failed: ' + e.message); }
+  phase = 'idle'; busy(false);
+};
+
+// --- digit-span memory task (Kahneman & Beatty style)
+// Pupil is measured while LISTENING (from the 3rd digit on) and while HOLDING the digits.
+// The typing phase and rest phase are excluded. Screen stays the same grey throughout.
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+function speak(text) {
+  try {
+    const u = new SpeechSynthesisUtterance(text);
+    u.rate = 1.1; u.lang = 'en-US';
+    speechSynthesis.cancel(); speechSynthesis.speak(u);
+  } catch {}
+}
+function randomDigits(n) {
+  const d = []; while (d.length < n) { const x = Math.floor(Math.random() * 10); if (x !== d[d.length - 1]) d.push(x); }
+  return d;
+}
+
+async function runDigitSpan(c) {
+  const el = $('task'), msg = $('taskMsg'), big = $('taskBig'), input = $('recall'), count = $('taskCount');
+  const audio = c.present === 'audio' && 'speechSynthesis' in window;
+  let cancelled = false;
+  const check = () => { if (cancelled) throw new Error('cancelled'); };
+  el.style.background = '#808080'; el.style.color = '#111'; el.style.display = 'flex';
+  el.requestFullscreen?.().catch(() => {});
+  const close = () => {
+    el.style.display = 'none'; input.style.display = 'none'; big.textContent = ''; count.textContent = '';
+    try { speechSynthesis.cancel(); } catch {}
+    if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+  };
+  cancelTask = () => { cancelled = true; close(); };
+
+  const segs = [], score = { trials: c.trials, correctTrials: 0, digitsCorrect: 0, digitsTotal: 0, details: [] };
+  try {
+    msg.textContent = audio ? 'Listen to the digits and keep them in mind. Turn your sound on.' : 'Watch the digits and keep them in mind.';
+    count.textContent = 'Get ready'; await sleep(5000); check();
+
+    for (let i = 1; i <= c.trials; i++) {
+      const digits = randomDigits(c.digits);
+      count.textContent = `Trial ${i}/${c.trials}`;
+      msg.textContent = audio ? 'Listen…' : '';
+      const tEnc = now();
+      for (const d of digits) {                         // 1 digit per second
+        if (audio) speak(String(d)); else big.textContent = d;
+        await sleep(audio ? 1000 : 700); check();
+        if (!audio) { big.textContent = ''; await sleep(300); check(); }
+      }
+      msg.textContent = 'Hold them in mind…';
+      for (let s = c.memHold; s > 0; s--) { count.textContent = `Trial ${i}/${c.trials} · hold ${s} s`; await sleep(1000); check(); }
+      segs.push([tEnc + 2, now()]);                     // skip first 2 s (pupil response latency)
+
+      // recall (not used for the pupil measure)
+      msg.textContent = 'Type the digits, then press Enter';
+      count.textContent = `Trial ${i}/${c.trials} · recall`;
+      input.value = ''; input.style.display = 'block'; input.focus();
+      const answer = await new Promise(resolve => {
+        const timer = setTimeout(() => done(input.value), 20000);
+        const poll = setInterval(() => { if (cancelled) done(''); }, 200);
+        function done(v) { clearTimeout(timer); clearInterval(poll); input.onkeydown = null; resolve(v); }
+        input.onkeydown = e => { if (e.key === 'Enter') done(input.value); };
+      });
+      check(); input.style.display = 'none';
+      const typed = answer.replace(/\D/g, '').split('').map(Number);
+      const correct = digits.reduce((n, d, k) => n + (typed[k] === d ? 1 : 0), 0);
+      score.digitsCorrect += correct; score.digitsTotal += digits.length;
+      if (correct === digits.length && typed.length === digits.length) score.correctTrials++;
+      score.details.push({ digits: digits.join(''), typed: typed.join(''), correct });
+
+      msg.textContent = `${correct}/${digits.length} correct. Relax and look at the cross…`;
+      for (let s = 6; s > 0; s--) { count.textContent = `rest ${s} s`; await sleep(1000); check(); }  // pupil recovers
+    }
+  } finally { close(); }
+  return { segs, score };
+}
+
+function segmentSummary(segs) {
+  const inSeg = s => segs.some(([a, b]) => s.t >= a && s.t <= b);
+  const all = samples.filter(inSeg), v = all.filter(s => s.valid).map(s => s.pupil);
+  const per = segs.map(([a, b]) => windowStats(a, b));
+  const pp = per.map(p => p.pupil).filter(isFinite);
+  const lums = all.map(s => s.lum).filter(x => x != null), fws = all.map(s => s.faceW).filter(x => x != null);
+  const dur = segs.reduce((n, [a, b]) => n + (b - a), 0);
+  return { pupil: median(v), sd: Math.max(sd(pp), 0.03), validFrac: all.length ? v.length / all.length : 0,
+           blinkRate: per.reduce((n, p, k) => n + p.blinkRate * (segs[k][1] - segs[k][0]) / 60, 0) / Math.max(dur, 1e-3) * 60,
+           lum: lums.length ? mean(lums) : NaN, faceW: fws.length ? mean(fws) : NaN, n: all.length };
+}
+
+// ======================================================== monitor ====
+let monTimer = null;
+$('btnMon').onclick = () => {
+  if (phase === 'monitor') { clearInterval(monTimer); phase = 'idle'; $('btnMon').textContent = 'Start'; busy(false); setStatus('Stopped'); return; }
+  phase = 'monitor'; busy(true); $('btnMon').disabled = false; $('btnMon').textContent = 'Stop'; done('s4');
+  shownLevel = candLevel = null; history = [];
+  monTimer = setInterval(tick, 1000);
+};
+
+function usePersonal() { return reference && (reference.pupil - baseline.pupil) >= 0.05; }
+
+function tick() {
+  const c = cfg(), t = now(), f = windowStats(t - c.win, t);
+  const personal = usePersonal();
+  const z = (f.pupil - baseline.pupil) / baseline.sd;
+  const idx = personal ? (f.pupil - baseline.pupil) / (reference.pupil - baseline.pupil) : z / 3;
+  $('mode').textContent = 'Mode: ' + (personal ? 'personal (baseline → your hard task)' : 'baseline only (z-score)');
+
+  // quality gates — pause the level when the pupil reading can't be trusted
+  const issues = [];
+  if (f.validFrac < 0.5) issues.push(`Only ${Math.round(f.validFrac * 100)}% valid frames (face lost / blinking / eyes not found)`);
+  if (isFinite(f.lum) && isFinite(baseline.lum) && Math.abs(f.lum / baseline.lum - 1) > 0.15)
+    issues.push(`Light changed ${Math.round((f.lum / baseline.lum - 1) * 100)}% vs baseline — pupil change may be from light`);
+  if (isFinite(f.faceW) && isFinite(baseline.faceW) && Math.abs(f.faceW / baseline.faceW - 1) > 0.12)
+    issues.push(`You moved ${f.faceW > baseline.faceW ? 'closer' : 'farther'} (${Math.round((f.faceW / baseline.faceW - 1) * 100)}% face size) — the model's mm reading depends on distance`);
+  $('quality').textContent = issues.join(' · ');
+  const ok = !issues.length && isFinite(idx);
+
+  const level = idx < c.t1 ? 'low' : idx < c.t2 ? 'medium' : 'high';
+  if (ok) {
+    if (level !== candLevel) { candLevel = level; candSince = t; }
+    if (shownLevel === null || (candLevel !== shownLevel && t - candSince >= c.hold)) shownLevel = candLevel;
+  }
+  const b = $('badge');
+  if (ok && shownLevel) { b.className = 'badge ' + shownLevel; b.textContent = shownLevel.toUpperCase(); }
+  else { b.className = 'badge paused'; b.textContent = 'PAUSED'; }
+  $('needle').style.left = `calc(${Math.max(0, Math.min(1, isFinite(idx) ? idx : 0)) * 100}% - 2px)`;
+  $('idxval').textContent = 'Workload index: ' + (isFinite(idx) ? idx.toFixed(2) : '–');
+
+  const fmt = (v, d = 2) => isFinite(v) ? v.toFixed(d) : '–';
+  $('feat').innerHTML = [
+    ['Pupil (mm)', fmt(f.pupil), fmt(baseline.pupil), reference ? fmt(reference.pupil) : '–'],
+    ['Δ vs baseline (mm)', (f.pupil - baseline.pupil >= 0 ? '+' : '') + fmt(f.pupil - baseline.pupil), '', ''],
+    ['z (baseline SD)', fmt(z, 1), '', ''],
+    ['Left / right (mm)', `${fmt(f.left)} / ${fmt(f.right)}`, '', ''],
+    ['Blinks / min', fmt(f.blinkRate, 0), fmt(baseline.blinkRate, 0), reference ? fmt(reference.blinkRate, 0) : '–'],
+    ['Valid frames', Math.round(f.validFrac * 100) + '%', Math.round(baseline.validFrac * 100) + '%', ''],
+    ['Light (frame mean)', fmt(f.lum, 0), fmt(baseline.lum, 0), ''],
+  ].map(r => `<tr><td>${r[0]}</td><td>${r[1]}</td><td>${r[2]}</td><td>${r[3]}</td></tr>`).join('');
+  $('feat').insertAdjacentHTML('afterbegin', '<tr><th>Signal</th><th>Now</th><th>Baseline</th><th>Hard task</th></tr>');
+
+  history.push({ t, pupil: f.pupil, ok }); if (history.length > 600) history.shift();
+  drawChart();
+  log.push({ time: new Date().toISOString(), level: ok ? shownLevel : 'paused', index: fmt(idx, 3), pupil_mm: fmt(f.pupil, 3),
+             left_mm: fmt(f.left, 3), right_mm: fmt(f.right, 3), baseline_mm: fmt(baseline.pupil, 3),
+             reference_mm: reference ? fmt(reference.pupil, 3) : '', blink_per_min: fmt(f.blinkRate, 1),
+             valid_frac: fmt(f.validFrac, 2), light: fmt(f.lum, 1), face_w: fmt(f.faceW, 3), issues: issues.join(' | ') });
+  $('btnCsv').disabled = false;
+}
+
+function updateBar() {
+  const c = cfg();
+  $('bar').style.background = `linear-gradient(90deg,var(--low) 0 ${c.t1 * 100}%,var(--med) ${c.t1 * 100}% ${c.t2 * 100}%,var(--high) ${c.t2 * 100}% 100%)`;
+}
+updateBar(); ['cfgT1', 'cfgT2'].forEach(id => $(id).addEventListener('input', updateBar));
+
+function drawChart() {
+  const cv = $('chart'), dpr = devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  cv.width = W * dpr; cv.height = H * dpr; const g = cv.getContext('2d'); g.scale(dpr, dpr);
+  const pts = history.filter(h => isFinite(h.pupil));
+  const refs = [baseline?.pupil, reference?.pupil].filter(isFinite);
+  const vals = pts.map(h => h.pupil).concat(refs);
+  if (!vals.length) return;
+  let lo = Math.min(...vals) - 0.2, hi = Math.max(...vals) + 0.2;
+  const y = v => H - 18 - (v - lo) / (hi - lo) * (H - 28);
+  const span = 300, tEnd = history[history.length - 1].t, x = t => W - (tEnd - t) / span * W;
+  g.font = '11px system-ui';
+  const line = (v, col, label) => { g.strokeStyle = col; g.setLineDash([5, 4]); g.beginPath(); g.moveTo(0, y(v)); g.lineTo(W, y(v)); g.stroke(); g.setLineDash([]); g.fillStyle = col; g.fillText(label + ' ' + v.toFixed(2) + ' mm', 6, y(v) - 4); };
+  if (baseline) line(baseline.pupil, '#2fbf71', 'baseline');
+  if (usePersonal()) line(reference.pupil, '#e5484d', 'hard task');
+  g.lineWidth = 2; let pen = false;
+  for (const h of history) {
+    if (!isFinite(h.pupil)) { pen = false; continue; }
+    g.strokeStyle = h.ok ? '#e8eaf0' : '#6b7280';
+    if (!pen) { g.beginPath(); g.moveTo(x(h.t), y(h.pupil)); pen = true; } else { g.lineTo(x(h.t), y(h.pupil)); g.stroke(); g.beginPath(); g.moveTo(x(h.t), y(h.pupil)); }
+  }
+  g.fillStyle = '#9aa1b1'; g.fillText('pupil (mm), last 5 min — grey = paused', W - 230, H - 4);
+}
+window.addEventListener('resize', drawChart);
+
+// ================================================ save / load / export ====
+function save() { try { localStorage.setItem('pupil_workload', JSON.stringify({ baseline, reference })); } catch {} }
+function loadSaved(checkOnly) {
+  try {
+    const d = JSON.parse(localStorage.getItem('pupil_workload') || 'null');
+    if (!d?.baseline) return false;
+    if (checkOnly) return true;
+    baseline = d.baseline; reference = d.reference;
+    done('s2'); $('r2').textContent = `Loaded baseline ${baseline.pupil.toFixed(2)} mm from ${new Date(baseline.created).toLocaleString()} — redo it if light, seat or camera changed`;
+    if (reference) { done('s3'); $('r3').textContent = `Loaded hard-task pupil ${reference.pupil.toFixed(2)} mm (${reference.task ?? 'reference'})`; }
+    busy(false); return true;
+  } catch { return false; }
+}
+$('btnLoad').onclick = () => loadSaved(false);
+$('btnCsv').onclick = () => {
+  if (!log.length) return;
+  const keys = Object.keys(log[0]);
+  const csv = [keys.join(','), ...log.map(r => keys.map(k => `"${String(r[k]).replace(/"/g, '""')}"`).join(','))].join('\n');
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' })); a.download = 'pupil_workload_log.csv'; a.click();
+};
+
+function done(id) { $(id).classList.add('done'); }
+function undone(id) { $(id).classList.remove('done', 'fail'); }
+['cfgChk', 'cfgBase', 'cfgRef', 'cfgWin'].forEach(id => $(id).addEventListener('input', () => {
+  $('lblChk').textContent = $('cfgChk').value; $('lblBase').textContent = $('cfgBase').value;
+  $('lblWin').textContent = $('cfgWin').value; updateRefDesc();
+}));
+function updateRefDesc() {
+  const c = cfg();
+  $('refDesc').textContent = c.task === 'digits'
+    ? `Digit-span memory: ${c.trials} trials of ${c.digits} ${c.present === 'audio' ? 'spoken' : 'on-screen'} digits, hold ${c.memHold} s, type them back · same grey screen${c.present === 'audio' ? ' · sound on' : ''}`
+    : `Count back by 7 silently (${c.ref} s), same grey screen`;
+}
+['cfgTask', 'cfgDigits', 'cfgTrials', 'cfgHoldMem', 'cfgPresent'].forEach(id => $(id).addEventListener('input', updateRefDesc));
+updateRefDesc();
+</script>
+</body>
+</html>
