@@ -28,7 +28,10 @@
   const CFG = {
     fps: 20,                       // readings per second requested from PupilSense
     inflight: 2,                   // frames in flight (hides network/encode latency)
-    win: 6,                        // seconds used for the live level
+    win: 6,                        // seconds used for baseline variation windows
+    smoothS: 1.5,
+    distTol: 0.15,                 // pause if face size differs from baseline by more than this (0.15 = 15%)
+    distCheck: true,                  // live level: smoothing time constant in seconds (lower = faster, noisier)
     settleS: 4,                    // seconds excluded after a sit-to-stand
     t1: 0.33, t2: 0.66,            // LOW->MEDIUM, MEDIUM->HIGH on the index
     baseS: FAST ? 6 : 10,          // seconds per baseline screen
@@ -44,6 +47,27 @@
   const GRID_KEY = '3x2';
   const GRID = { cols: 3, rows: 2, cards: 6 };
   window.PupilSenseGrid = { cards: GRID.cards, layout: GRID_KEY };
+
+  // ---- Difficulty levels (same 3x2 screen and brightness on every level; only timing/look-alikes change)
+  const LEVELS = [
+    null,
+    { memoryMs: 4000, delayMs: 0,    similarity: 'low',  destination: false, duplicates: 0, label: 'Very easy' },
+    { memoryMs: 3200, delayMs: 1000, similarity: 'low',  destination: false, duplicates: 0, label: 'Easy' },
+    { memoryMs: 2700, delayMs: 1500, similarity: 'mid',  destination: false, duplicates: 0, label: 'Medium' },   // ~ original game timing
+    { memoryMs: 2000, delayMs: 2500, similarity: 'high', destination: false, duplicates: 0, label: 'Hard' },
+    { memoryMs: 3000, delayMs: 1500, similarity: 'mid',  destination: true, duplicates: 1, label: 'Number + destination' },
+    { memoryMs: 2200, delayMs: 3000, similarity: 'high', destination: true, duplicates: 2, label: 'Number + destination, hard' },
+  ];
+  window.PupilSenseDestinations = ['Jurong East', 'Woodlands', 'Tampines', 'Bedok', 'Yishun', 'Clementi', 'Punggol', 'Bishan', 'Toa Payoh', 'Pasir Ris', 'Sengkang', 'Bukit Batok'];
+  const DIFF = { level: 2, adaptive: true, upAfter: 2, streak: 0 };
+  function applyDifficulty() {
+    const L = LEVELS[DIFF.level], f = new URLSearchParams(location.search).get('fast') === '1' ? 0.3 : 1;
+    window.PupilSenseDifficulty = { level: DIFF.level, memoryMs: Math.round(L.memoryMs * f), delayMs: Math.round(L.delayMs * f),
+                                    similarity: L.similarity, destination: !!L.destination, duplicates: L.duplicates || 0 };
+    const el = document.getElementById('ps-diff'); if (el) el.textContent = `Lv ${DIFF.level}`;
+    const sel = document.getElementById('ps-lvl'); if (sel) sel.value = String(DIFF.level);
+  }
+  applyDifficulty();
   // Gaze calibration mode: 'click' = WebGazer standard (click each dot 5x while looking at it, default),
   // 'look' = hands-free (look at each dot, recorded automatically). Choose with ?cal=look
   const CAL_MODE = new URLSearchParams(location.search).get('cal') === 'look' ? 'look' : 'click';
@@ -60,6 +84,7 @@
   let samples = [], phase = 'setup', screen = 'safety', attempt = null, settleUntil = 0;
   let baseline = null, trials = [], trial = null, check = null, gazeCal = null;
   let showToParticipant = true, levelShown = null;
+  let live = { ema: null, phase: null, t: 0, n: 0 };   // live smoothed pupil for the current screen
   let wgReady = false, gazeSelect = true, calibrating = false, warmupLocked = false;
   const gazeBuf = []; let gaze = null;            // smoothed gaze {x, y, t}
   let dwell = { el: null, start: 0, lastSeen: 0 };
@@ -120,8 +145,13 @@
     background:#D9473A;opacity:.25;box-shadow:0 0 0 8px rgba(217,71,58,.12);transition:opacity .15s,background .2s;animation:ps-pop .5s ease}
   #ps-cal-click .cp.done{background:#267B53;opacity:1;box-shadow:0 0 0 8px rgba(38,123,83,.18);cursor:default}
   #ps-cal-click .cp.hidden{display:none}
+  .route-display:has(.route-dest){flex-direction:column;gap:0}
+  .route-display:has(.route-dest) .route-number{font-size:clamp(18px,3svh,27px)}
+  .route-dest{color:#F7C66B;font:800 clamp(10px,1.45svh,14px)/1 Inter,"Segoe UI",Arial,sans-serif;letter-spacing:.02em;text-transform:uppercase;white-space:nowrap;margin-top:2px}
+  #ps-memdest{color:#28362F;font:800 clamp(30px,4.5svh,52px)/1.1 Inter,"Segoe UI",Arial,sans-serif;letter-spacing:-.02em;margin-top:-10px;text-align:center;transition:opacity 300ms ease}
+  #ps-memdest.fade-out{opacity:0}
   #ps-dwell{position:fixed;z-index:8900;height:10px;border-radius:6px;background:#267B53;display:none;pointer-events:none}
-  body.ps-hidden-level #ps-level,body.ps-hidden-level #ps-meta{visibility:hidden}`;
+  body.ps-hidden-level #ps-level,body.ps-hidden-level #ps-meta,body.ps-hidden-level #ps-diff{visibility:hidden}`;
   document.head.insertAdjacentHTML('beforeend', `<style>${css}</style>`);
   if (GRID_KEY !== '3x3') {
     const gw = GRID.cols === 3 ? 'min(1240px, 78vw)' : 'min(860px, 58vw)';
@@ -135,6 +165,7 @@
   <div id="ps-bar" role="status" aria-live="polite">
     <span class="dot" id="ps-sdot" title="PupilSense connection"></span>
     <span id="ps-level">—</span>
+    <span id="ps-diff" title="Current difficulty level" style="font-weight:800;color:#425248;background:#EDF0EB;border-radius:99px;padding:5px 10px">Lv 2</span>
     <span id="ps-meta">Calibration starts after the safety check</span>
     <button class="ps-btn" id="ps-toggle" aria-expanded="false">Pupil ▾</button>
   </div>
@@ -147,9 +178,16 @@
     <div class="warn" id="ps-warn"></div>
     <div class="row"><label><input type="checkbox" id="ps-show" checked> Show level to participant</label>
       <label><input type="checkbox" id="ps-gsel" checked> Gaze selection (dwell)</label>
+      <label title="Fixes camera brightness at its current setting. Lock when the image looks right; unlock if it gets too dark."><input type="checkbox" id="ps-lock"> Lock camera brightness</label>
       <label><input type="checkbox" id="ps-gdot"> Show gaze dot</label>
       <label title="For testing without eye tracking: the mouse pointer acts as the gaze"><input type="checkbox" id="ps-mgaze"> Mouse as gaze (test)</label></div>
+    <div class="row"><label><input type="checkbox" id="ps-adapt" checked> Adaptive difficulty</label>
+      <label>Raise after <input type="number" id="ps-upafter" value="2" min="1" max="10" style="width:44px"> LOW + correct trials</label>
+      <label>Level <select id="ps-lvl">${LEVELS.slice(1).map((L, i) => `<option value="${i + 1}">${i + 1} · ${L.label}</option>`).join('')}</select></label></div>
+    <div class="res" id="ps-r-diff" style="color:#78847B">Up one level after LOW workload + correct answers; down one after a wrong answer or HIGH workload.</div>
     <div class="row"><label>Dwell <input type="number" id="ps-dwellms" value="${CFG.dwellMs}" min="400" max="4000" step="100" style="width:64px"> ms</label>
+      <label title="Pause the level if you sit closer/farther than at baseline"><input type="checkbox" id="ps-dist" checked> Distance check ±<input type="number" id="ps-disttol" value="${Math.round(CFG.distTol * 100)}" min="3" max="50" style="width:44px">%</label>
+      <label title="Live level smoothing: lower reacts faster but is noisier">Smoothing <input type="number" id="ps-smooth" value="${CFG.smoothS}" min="0.2" max="10" step="0.1" style="width:52px"> s</label>
       <label>Readings/s <input type="number" id="ps-fps" value="${CFG.fps}" min="2" max="30" style="width:48px"></label>
       <label>Exclude after stand-up <input type="number" id="ps-settle" value="${CFG.settleS}" min="0" max="15" style="width:48px"> s</label></div>
     <div class="res" style="color:#78847B">Observation only — difficulty is not changed. Each game phase is compared with its own seated baseline.</div>
@@ -177,6 +215,18 @@
   $('ps-mgaze').onchange = e => { mouseGaze = e.target.checked; resetDwell(); };
   document.addEventListener('mousemove', e => { if (mouseGaze) onGaze({ x: e.clientX, y: e.clientY }, true); }, true);
   $('ps-dwellms').oninput = e => { CFG.dwellMs = Math.max(300, +e.target.value || CFG.dwellMs); };
+  $('ps-lock').onchange = async e => {
+    const track = camTrack(); if (!track) { e.target.checked = false; return; }
+    if (e.target.checked) await lockExposure(track); else await unlockExposure(track);
+  };
+  $('ps-dist').onchange = e => { CFG.distCheck = e.target.checked; };
+  $('ps-disttol').oninput = e => { CFG.distTol = Math.min(0.5, Math.max(0.03, (+e.target.value || 15) / 100)); };
+  $('ps-adapt').onchange = e => { DIFF.adaptive = e.target.checked; DIFF.streak = 0; };
+  $('ps-upafter').oninput = e => { DIFF.upAfter = Math.max(1, +e.target.value || 2); };
+  $('ps-lvl').onchange = e => { DIFF.level = +e.target.value; DIFF.streak = 0; applyDifficulty();
+    $('ps-r-diff').textContent = `Level set to ${DIFF.level} (${LEVELS[DIFF.level].label}) by researcher — applies from the next trial.`; };
+  applyDifficulty();
+  $('ps-smooth').oninput = e => { CFG.smoothS = Math.min(10, Math.max(0.2, +e.target.value || CFG.smoothS)); };
   $('ps-fps').oninput = e => { CFG.fps = Math.min(30, Math.max(2, +e.target.value || CFG.fps)); };
   $('ps-settle').oninput = e => { CFG.settleS = Math.max(0, +e.target.value || 0); };
   $('ps-recal').onclick = () => { $('ps-panel').classList.remove('open'); openCalibration(); };
@@ -216,8 +266,16 @@
     }
     const postMove = phase === 'movement' || t < settleUntil;
     samples.push({ t, iso: new Date().toISOString(), phase, screen, attemptId: attempt?.attemptId ?? '', set: attempt?.set ?? '', rep: attempt?.rep ?? '',
-                   pupil, left: r.left_mm, right: r.right_mm, blink: r.blink, face: r.face, valid, postMove, lum: r.lum, faceW: r.face_w,
+                   pupil, left: r.left_mm, right: r.right_mm, blink: r.blink, face: r.face, valid, postMove, lum: r.lum, faceW: r.face_w, faceS: r.face_h ?? r.face_w,
                    gx: gaze && t - gaze.t < 0.5 ? Math.round(gaze.x) : '', gy: gaze && t - gaze.t < 0.5 ? Math.round(gaze.y) : '' });
+    // live: exponential smoothing per reading, restarted on every new screen (screens differ in brightness)
+    const lp = phase === 'confirm' ? 'search' : phase;
+    if (lp !== live.phase || (trial && live.trialId !== trial.attemptId)) live = { ema: null, phase: lp, t: 0, n: 0, trialId: trial?.attemptId };
+    if (valid && !postMove && (lp === 'memory' || lp === 'search')) {
+      const a = live.ema == null ? 1 : 1 - Math.exp(-(t - live.t) / Math.max(0.1, CFG.smoothS));
+      live.ema = live.ema == null ? pupil : live.ema + a * (pupil - live.ema);
+      live.t = t; live.n++;
+    }
     if (r.crops?.left_eye) { $('ps-eyeL').src = r.crops.left_eye; }
     if (r.crops?.right_eye) { $('ps-eyeR').src = r.crops.right_eye; }
     const rate = samples.filter(x => x.t > t - 3).length / 3;
@@ -250,19 +308,47 @@
     video = document.getElementById('webgazerVideoFeed');
     streaming = true; $('ps-sdot').className = 'dot on'; requestAnimationFrame(pump);
   }
-  function lockExposureNow() {
-    const track = video?.srcObject?.getVideoTracks?.()[0];
-    if (track) lockExposure(track);
-  }
+
+  let exposureLocked = false;
+  const frameLum = (sec = 1.5) => mean(samples.filter(x => x.t > now() - sec && x.lum != null).map(x => x.lum));
   async function lockExposure(track) {
+    // Lock camera brightness (exposure + white balance) at its current setting, when YOU choose.
+    // Some Windows webcams report the wrong exposure value and get darker when locked - then just unlock.
     try {
       const caps = track.getCapabilities ? track.getCapabilities() : {}, set = track.getSettings(), adv = {};
       if (caps.exposureMode?.includes('manual')) { adv.exposureMode = 'manual'; if (set.exposureTime) adv.exposureTime = set.exposureTime; }
       if (caps.whiteBalanceMode?.includes('manual')) { adv.whiteBalanceMode = 'manual'; if (set.colorTemperature) adv.colorTemperature = set.colorTemperature; }
-      if (Object.keys(adv).length) { await track.applyConstraints({ advanced: [adv] }); $('ps-r-cam').textContent = 'Camera exposure locked ✓'; }
-      else $('ps-r-cam').textContent = 'Camera exposure could not be locked from the browser — keep room lighting steady.';
-    } catch { $('ps-r-cam').textContent = 'Camera exposure could not be locked — keep room lighting steady.'; }
+      if (!Object.keys(adv).length) { setLockUI(false, 'This camera cannot lock brightness from the browser — keep room lighting steady.'); return false; }
+      const before = frameLum();
+      await track.applyConstraints({ advanced: [adv] });
+      exposureLocked = true;
+      setLockUI(true, 'Locking…');
+      await sleep(1500);
+      const after = frameLum(1.0);
+      const darker = isFinite(before) && isFinite(after) && after < before * 0.85;
+      setLockUI(true, `Brightness locked (image ${isFinite(before) ? Math.round(before) : '–'} → ${isFinite(after) ? Math.round(after) : '–'})` +
+        (darker ? ' — it got darker; unlock if the face is too dark' : ' ✓'));
+      return true;
+    } catch { setLockUI(false, 'Brightness could not be locked — keep room lighting steady.'); return false; }
   }
+  function setLockUI(locked, msg) {
+    exposureLocked = locked;
+    $('ps-lock').checked = locked;
+    $('ps-r-cam').textContent = msg;
+    const b = document.getElementById('ps-lockbtn'), m = document.getElementById('ps-lockmsg');
+    if (b) b.textContent = locked ? 'Unlock brightness' : 'Lock brightness';
+    if (m) m.textContent = msg;
+  }
+  async function unlockExposure(track) {
+    try {
+      const caps = track.getCapabilities ? track.getCapabilities() : {}, adv = {};
+      if (caps.exposureMode?.includes('continuous')) adv.exposureMode = 'continuous';
+      if (caps.whiteBalanceMode?.includes('continuous')) adv.whiteBalanceMode = 'continuous';
+      if (Object.keys(adv).length) await track.applyConstraints({ advanced: [adv] });
+    } catch {}
+    setLockUI(false, 'Camera brightness: automatic.');
+  }
+  const camTrack = () => video?.srcObject?.getVideoTracks?.()[0];
 
   function onGaze(data, fromMouse = false) {
     if (!data) return;
@@ -308,7 +394,7 @@
       if (el.id === 'warmupBus') CYB.inputs.warmupGazeLocked();
       else if (el.dataset.route) {
         if (phase === 'confirm' && CYB.inputs.clearGazeTarget) CYB.inputs.clearGazeTarget();
-        CYB.inputs.gazeTarget(el.dataset.route);
+        CYB.inputs.gazeTarget(el.dataset.key || el.dataset.route);
       }
     }
   }
@@ -318,19 +404,20 @@
     const t = now(), d = ev.detail || {};
     switch (ev.type) {
       case 'screen_changed': screen = d.screen; if (d.screen !== 'game') phase = d.screen; resetDwell(); break;
-      case 'session_started': warmupLocked = false; openCalibration(); break;
+      case 'session_started': warmupLocked = false; DIFF.streak = 0; openCalibration(); break;
       case 'warmup_gaze_locked': warmupLocked = true; resetDwell(); break;
       case 'trial_memory_shown':
         phase = 'memory'; attempt = { attemptId: d.attemptId, set: d.set, rep: d.rep };
-        trial = { attemptId: d.attemptId, set: d.set, rep: d.rep, target: d.targetRoute, memStart: t,
+        showMemoryGrid(d.targetPos, d.targetRoute, d.targetDest);
+        trial = { attemptId: d.attemptId, set: d.set, rep: d.rep, target: d.targetRoute, targetPos: d.targetPos ?? '', targetDest: d.targetDest ?? '', destMode: d.targetDest != null, memLocation: false, memStart: t,
                   sinceStandUp: settleUntil ? +(t - (settleUntil - CFG.settleS)).toFixed(2) : '' };
         break;
-      case 'trial_search_started': phase = 'search'; if (trial) trial.searchStart = t; break;
-      case 'gaze_target_locked': phase = 'confirm'; resetDwell(); if (trial) { trial.lockAt = t; trial.searchTimeMs = d.searchTimeMs; trial.selected = d.route; trial.lockSource = d.source; } break;
+      case 'trial_search_started': phase = 'search'; hideMemoryGrid(); if (trial) trial.searchStart = t; break;
+      case 'gaze_target_locked': phase = 'confirm'; resetDwell(); if (trial) { trial.lockAt = t; trial.searchTimeMs = d.searchTimeMs; trial.selected = d.route; trial.selectedPos = d.pos ?? ''; trial.selectedDest = d.dest ?? ''; trial.lockSource = d.source; } break;
       case 'gaze_target_cleared': phase = 'search'; resetDwell(); if (trial) { trial.reselections = (trial.reselections || 0) + 1; trial.lockAt = null; } break;
       case 'emg_confirmed':
         phase = 'movement';
-        if (trial) { trial.correct = d.isCorrect; trial.emgAt = t; finaliseTrial(trial); trials.push(trial); trial = null; }
+        if (trial) { trial.correct = d.isCorrect; trial.emgAt = t; finaliseTrial(trial); adapt(trial); trials.push(trial); trial = null; }
         break;
       case 'rep_completed': phase = 'settle'; settleUntil = t + CFG.settleS; break;
       case 'rest_started': phase = 'rest'; attempt = null; break;
@@ -338,6 +425,50 @@
       case 'new_session_ready': phase = 'setup'; attempt = null; trials = []; samples = []; break;
     }
   });
+
+  // ----------------------------------------- destination-mode memory screen ----
+  let memLocation = false;   // (kept for the pupil-baseline choice; false in destination mode: screen stays plain)
+  function showMemoryGrid(pos, route, dest) {
+    hideMemoryGrid();
+    if (!dest) return;
+    const panel = document.getElementById('memoryPanel'), num = document.getElementById('memoryNumber');
+    if (!panel || !num) return;
+    num.insertAdjacentHTML('afterend', `<p id="ps-memdest">${dest}</p>`);
+    const obs = new MutationObserver(() => { document.getElementById('ps-memdest')?.classList.toggle('fade-out', num.classList.contains('fade-out')); });
+    obs.observe(num, { attributes: true, attributeFilter: ['class'] });
+    panel._psObs = obs;
+  }
+  function hideMemoryGrid() {
+    const panel = document.getElementById('memoryPanel');
+    document.getElementById('ps-memdest')?.remove();
+    panel?._psObs?.disconnect();
+  }
+
+  // ------------------------------------------------- difficulty controller ----
+  // After each confirmed answer (uses the workload level of the Find phase of THAT trial):
+  //   wrong answer            -> down one level
+  //   correct + HIGH workload -> down one level
+  //   correct + LOW workload  -> count it; after DIFF.upAfter in a row -> up one level
+  //   correct + MEDIUM        -> stay (streak resets)
+  //   correct + no reading    -> stay (streak kept) — pupil was paused/unreliable
+  function adapt(tr) {
+    tr.level_played = DIFF.level;
+    if (!DIFF.adaptive) { tr.level_change = 0; tr.level_reason = 'adaptive off'; return; }
+    const before = DIFF.level, lvl = tr.search_level;
+    let reason;
+    if (!tr.correct) { DIFF.level = Math.max(1, DIFF.level - 1); DIFF.streak = 0; reason = 'wrong answer'; }
+    else if (lvl === 'high') { DIFF.level = Math.max(1, DIFF.level - 1); DIFF.streak = 0; reason = 'correct but HIGH workload'; }
+    else if (lvl === 'low') {
+      DIFF.streak++;
+      if (DIFF.streak >= DIFF.upAfter) { DIFF.level = Math.min(LEVELS.length - 1, DIFF.level + 1); DIFF.streak = 0; reason = `${DIFF.upAfter}× LOW + correct`; }
+      else reason = `LOW + correct (${DIFF.streak}/${DIFF.upAfter})`;
+    }
+    else if (lvl === 'medium') { DIFF.streak = 0; reason = 'correct, MEDIUM workload — stay'; }
+    else reason = 'correct, no reliable pupil reading — stay';
+    tr.level_change = DIFF.level - before; tr.level_reason = reason; tr.level_next = DIFF.level;
+    applyDifficulty();
+    $('ps-r-diff').textContent = `Trial ${tr.set}-${tr.rep}: ${reason} → level ${before}${DIFF.level !== before ? ' → ' + DIFF.level : ''} (${LEVELS[DIFF.level].label})`;
+  }
 
   // ---------------------------------------------------- calibration scene ----
   const C = { title: $('ps-c-title'), text: $('ps-c-text'), result: $('ps-c-result'), actions: $('ps-c-actions'), status: $('ps-c-status'), kicker: $('ps-c-kicker') };
@@ -385,7 +516,16 @@
       webgazer.showVideoPreview(true); webgazer.showFaceOverlay(false); webgazer.showFaceFeedbackBox(true);
       document.body.classList.add('ps-positioning');
       if (vc) C.result.appendChild(vc);
-      C.result.insertAdjacentHTML('beforeend', '<div><span id="ps-light">Checking light…</span></div>');
+      C.result.insertAdjacentHTML('beforeend', `<div><span id="ps-light">Checking light…</span></div>
+        <div style="margin-top:10px;display:flex;gap:10px;justify-content:center;align-items:center;flex-wrap:wrap">
+          <button class="ps-btn" id="ps-lockbtn">${exposureLocked ? 'Unlock brightness' : 'Lock brightness'}</button>
+          <span id="ps-lockmsg" style="font-size:13px;color:#78847B">Optional: lock when your face looks clear, so brightness can't change during the game.</span></div>`);
+      $('ps-lockbtn').onclick = async () => {
+        const track = camTrack(); if (!track) return;
+        $('ps-lockbtn').disabled = true;
+        if (exposureLocked) await unlockExposure(track); else await lockExposure(track);
+        $('ps-lockbtn').disabled = false;
+      };
       const meter = setInterval(() => {            // live lighting check from the camera image
         const el = $('ps-light'); if (!el) return;
         const lum = mean(samples.filter(x => x.t > now() - 1.5 && x.lum != null).map(x => x.lum));
@@ -400,7 +540,6 @@
       if (vc) document.body.appendChild(vc);
       webgazer.showVideoPreview(false);
       webgazer.setVideoViewerSize(320, 240);
-      lockExposureNow();                              // lock brightness now that lighting is set up
 
       // 2. gaze calibration + validation
       let again = true;
@@ -590,7 +729,8 @@
         const w = samples.filter(x => x.t >= blk.start + 3 && x.t <= blk.end), v = w.filter(x => x.valid);
         const per = []; for (let a = blk.start + 3; a + CFG.win <= blk.end; a += 1) { const p = windowPupil(a, a + CFG.win, false).pupil; if (isFinite(p)) per.push(p); }
         return { pupil: median(v.map(x => x.pupil)), sd: Math.max(sd(per), 0.05), validFrac: w.length ? v.length / w.length : 0,
-                 lum: mean(w.map(x => x.lum).filter(x => x != null)), faceW: mean(w.map(x => x.faceW).filter(x => x != null)) };
+                 lum: mean(w.map(x => x.lum).filter(x => x != null)), faceW: mean(w.map(x => x.faceW).filter(x => x != null)),
+                 faceS: median(w.map(x => x.faceS).filter(x => x != null)) };
       };
       return { memory: summ(m), search: summ(s), created: new Date().toISOString() };
     } finally { phase = screen; }
@@ -617,7 +757,7 @@
   // ------------------------------------------------------------ live level ----
   function indexFor(p, which) {
     const b = baseline?.[which];
-    if (!b || !isFinite(p)) return NaN;
+    if (!b || p == null || !isFinite(p)) return NaN;
     return (p - b.pupil) / (3 * b.sd);
   }
   const levelOf = idx => !isFinite(idx) ? null : idx < CFG.t1 ? 'low' : idx < CFG.t2 ? 'medium' : 'high';
@@ -629,16 +769,16 @@
       mem_pupil: m.pupil, mem_pupil_incl_postmove: mAll.pupil, mem_valid: m.validFrac, mem_postmove_frac: mAll.postFrac,
       search_pupil: s.pupil, search_valid: s.validFrac, search_postmove_frac: s.postFrac,
       base_memory: baseline?.memory?.pupil, base_search: baseline?.search?.pupil,
-      mem_index: indexFor(m.pupil, 'memory'), search_index: indexFor(s.pupil, 'search'),
+      mem_index: indexFor(m.pupil, tr.memLocation ? 'search' : 'memory'), search_index: indexFor(s.pupil, 'search'),
     });
     tr.mem_level = levelOf(tr.mem_index); tr.search_level = levelOf(tr.search_index);
   }
 
-  setInterval(tick, 1000);
+  setInterval(tick, 200);
   function tick() {
     if (!streaming || calibrating) { if (calibrating) { setLevel(null, 'CALIBRATING'); $('ps-meta').textContent = 'Calibration in progress'; } return; }
     const t = now();
-    const which = phase === 'memory' ? 'memory' : (phase === 'search' || phase === 'confirm') ? 'search' : null;
+    const which = phase === 'memory' ? (memLocation ? 'search' : 'memory') : (phase === 'search' || phase === 'confirm') ? 'search' : null;
     const warn = [];
     if (!baseline) {
       setLevel(null, 'NO BASELINE'); $('ps-meta').textContent = 'Pupil baseline not recorded — Pupil ▾ → Calibrate again';
@@ -648,26 +788,33 @@
       const last = trials[trials.length - 1];
       $('ps-meta').textContent = last ? `last trial: Find ${last.search_level?.toUpperCase() ?? '–'} (${fmt(last.search_pupil)} mm)` : phaseName();
     } else {
-      const phaseStart = which === 'memory' ? trial?.memStart : trial?.searchStart;
-      const t0 = Math.max(t - CFG.win, phaseStart ?? t - CFG.win);
-      const w = windowPupil(t0, t, true), b = baseline[which];
-      const nValid = samples.filter(s => s.t >= t0 && s.t <= t && s.valid && !s.postMove).length;
-      const idx = indexFor(w.pupil, which);
-      if (w.postFrac > 0.5) warn.push('just stood up — waiting to settle');
-      else if (nValid < 8) warn.push('collecting readings…');
-      else if (w.validFrac < 0.5) warn.push(`only ${Math.round(w.validFrac * 100)}% usable frames (face/eyes lost or blinking)`);
-      const recent = samples.filter(s => s.t >= t0 && s.t <= t);
-      const lum = mean(recent.map(s => s.lum).filter(x => x != null)), fw = mean(recent.map(s => s.faceW).filter(x => x != null));
+      const b = baseline[which];
+      const recent = samples.filter(s => s.t > t - 2);              // quality checks on the last 2 s
+      const usable = recent.filter(s => s.valid && !s.postMove).length / (recent.length || 1);
+      const postFrac = recent.filter(s => s.postMove).length / (recent.length || 1);
+      const p = live.phase === which ? live.ema : null;
+      const idx = indexFor(p, which);
+      const w = { pupil: p };
+      if (postFrac > 0.5) warn.push('just stood up — waiting to settle');
+      else if (live.phase !== which || live.n < 5) warn.push('collecting readings…');
+      else if (usable < 0.5) warn.push(`only ${Math.round(usable * 100)}% usable frames (face/eyes lost or blinking)`);
+      const lum = mean(recent.map(s => s.lum).filter(x => x != null));
       if (b.lum && isFinite(lum) && Math.abs(lum / b.lum - 1) > 0.15) warn.push(`light ${Math.round((lum / b.lum - 1) * 100)}% vs baseline`);
-      if (b.faceW && isFinite(fw) && Math.abs(fw / b.faceW - 1) > 0.12) warn.push(`sitting ${fw > b.faceW ? 'closer' : 'farther'} than at baseline`);
+      // distance: median face HEIGHT over the last 3 s vs baseline (height is not affected by turning the head left/right)
+      const fs = median(samples.filter(s => s.t > t - 3 && s.faceS != null).map(s => s.faceS));
+      const bS = b.faceS ?? b.faceW;
+      if (CFG.distCheck && bS && isFinite(fs) && Math.abs(fs / bS - 1) > CFG.distTol)
+        warn.push(`sitting ${fs > bS ? 'closer' : 'farther'} than at baseline (${fs > bS ? '+' : ''}${Math.round((fs / bS - 1) * 100)}%)`);
       const ok = !warn.length && isFinite(idx);
       if (ok) levelShown = levelOf(idx);
       setLevel(ok ? levelShown : null, ok ? null : 'PAUSED');
-      $('ps-meta').textContent = `${phaseName()} · ${fmt(w.pupil)} mm (Δ ${isFinite(w.pupil) ? (w.pupil - b.pupil >= 0 ? '+' : '') + fmt(w.pupil - b.pupil) : '–'}) · idx ${fmt(idx)}` + (ok ? '' : ` · ${warn[0]}`);
+      const hasP = w.pupil != null && isFinite(w.pupil);
+      $('ps-meta').textContent = `${phaseName()} · ${fmt(w.pupil)} mm (Δ ${hasP ? (w.pupil - b.pupil >= 0 ? '+' : '') + fmt(w.pupil - b.pupil) : '–'}) · idx ${fmt(idx)}` + (ok ? '' : ` · ${warn[0]}`);
     }
     $('ps-warn').textContent = warn.join(' · ');
-    if ($('ps-panel').classList.contains('open')) drawChart();
+    if ($('ps-panel').classList.contains('open') && (++chartTick % 5 === 0)) drawChart();
   }
+  let chartTick = 0;
   function setLevel(level, label) { const el = $('ps-level'); el.className = level || ''; el.textContent = level ? level.toUpperCase() : (label || '—'); }
   function phaseName() { return { memory: 'Remember', search: 'Find', confirm: 'Find (locked)', setup: 'Setup', warmup: 'Warm-up' }[phase] || phase; }
 
@@ -701,7 +848,8 @@
   }
   $('ps-export').onclick = () => {
     const stamp = new Date().toISOString().replace(/[:.]/g, '-');
-    const tr = trials.map(t => ({ attemptId: t.attemptId, set: t.set, rep: t.rep, target: t.target, selected: t.selected, correct: t.correct,
+    const tr = trials.map(t => ({ attemptId: t.attemptId, set: t.set, rep: t.rep, target: t.target, target_dest: t.targetDest, selected: t.selected, selected_dest: t.selectedDest, destination_mode: t.destMode, correct: t.correct,
+      level_played: t.level_played ?? '', level_next: t.level_next ?? '', level_change: t.level_change ?? '', level_reason: t.level_reason ?? '',
       lock_source: t.lockSource, reselections: t.reselections ?? 0, search_time_ms: t.searchTimeMs, s_since_stand_up_at_memory: t.sinceStandUp,
       mem_pupil_mm: fmt(t.mem_pupil, 3), mem_pupil_incl_postmove_mm: fmt(t.mem_pupil_incl_postmove, 3), mem_valid: fmt(t.mem_valid), mem_postmove_frac: fmt(t.mem_postmove_frac),
       search_pupil_mm: fmt(t.search_pupil, 3), search_valid: fmt(t.search_valid), search_postmove_frac: fmt(t.search_postmove_frac),
@@ -709,11 +857,11 @@
       mem_index: fmt(t.mem_index, 3), mem_level: t.mem_level ?? '', search_index: fmt(t.search_index, 3), search_level: t.search_level ?? '' }));
     const sm = samples.map(s => ({ time: s.iso, phase: s.phase, screen: s.screen, attemptId: s.attemptId, set: s.set, rep: s.rep,
       pupil_mm: fmt(s.pupil, 3), left_mm: fmt(s.left, 3), right_mm: fmt(s.right, 3), blink: s.blink, face: s.face, valid: s.valid,
-      post_movement: s.postMove, gaze_x: s.gx, gaze_y: s.gy, light: fmt(s.lum, 1), face_w: fmt(s.faceW, 3) }));
+      post_movement: s.postMove, gaze_x: s.gx, gaze_y: s.gy, light: fmt(s.lum, 1), face_w: fmt(s.faceW, 3), face_h: fmt(s.faceS, 3) }));
     if (tr.length) download(`pupilsense_trials_${stamp}.csv`, csv(tr));
     if (sm.length) download(`pupilsense_samples_${stamp}.csv`, csv(sm));
     download(`pupilsense_meta_${stamp}.json`, JSON.stringify({ gazeCalibration: gazeCal, baseline, lightCheck: check, settings: CFG,
-      gridLayout: GRID_KEY, calibrationMode: CAL_MODE, webgazerVersion: WG_VERSION, exportedAt: new Date().toISOString() }, null, 2), 'application/json');
+      gridLayout: GRID_KEY, difficultyLevels: LEVELS.slice(1), adaptive: { ...DIFF }, calibrationMode: CAL_MODE, exposureLocked, webgazerVersion: WG_VERSION, exportedAt: new Date().toISOString() }, null, 2), 'application/json');
   };
 
   window.PupilSenseOverlay = { getSamples: () => samples, getTrials: () => trials, getBaseline: () => baseline,

@@ -126,13 +126,15 @@ class PupilEngine:
         img = np.array(resize_frame(rgb).convert("RGB"))
         h, w = img.shape[:2]
         out = {"face": False, "blink": False, "eyes_ratio": None, "left_mm": None, "right_mm": None,
-               "lum": float(cv2.cvtColor(img, cv2.COLOR_RGB2GRAY).mean()), "face_w": None,
+               "lum": float(cv2.cvtColor(img, cv2.COLOR_RGB2GRAY).mean()), "face_w": None, "face_h": None,
                "crops": {}, "frame_size": [w, h]}
 
         if extras:
             det = self.face_detector.process(img)      # face size = distance proxy
             if det.detections:
-                out["face_w"] = float(det.detections[0].location_data.relative_bounding_box.width)
+                bb = det.detections[0].location_data.relative_bounding_box
+                out["face_w"] = float(bb.width)
+                out["face_h"] = float(bb.height)   # height: barely changes when the head turns left/right
 
         res = self.ds(img)                             # authors' feature extraction
         if res is None or "face" not in res:
@@ -200,22 +202,99 @@ def create_app(engine, game_dir=None):
                 ("currentCards = sample([...real, ...distractors], 9);",
                  "currentCards = sample([...real, ...distractors], __n);"),
             ]),
+            ("difficulty (window.PupilSenseDifficulty: memoryMs, delayMs, similarity)", [
+                ("currentCards = sample([...real, ...distractors], __n);",
+                 "const __sim = (window.PupilSenseDifficulty && window.PupilSenseDifficulty.similarity) || 'low';\n"
+                 "    if (__sim === 'low') { currentCards = sample([...real, ...distractors], __n); }\n"
+                 "    else {\n"
+                 "      const t = currentTarget, look = new Set();\n"
+                 "      const perm = (s) => s.length <= 1 ? [s] : [...s].flatMap((c, i) => perm(s.slice(0, i) + s.slice(i + 1)).map((r) => c + r));\n"
+                 "      perm(t).forEach((v) => look.add(v));\n"
+                 "      for (let i = 0; i < t.length; i++) for (let d = 0; d <= 9; d++) look.add(t.slice(0, i) + d + t.slice(i + 1));\n"
+                 "      look.delete(t);\n"
+                 "      const k = __sim === 'high' ? __n - 1 : Math.ceil((__n - 1) / 2);\n"
+                 "      const alike = sample([...look].filter((v) => !(v.length > 1 && v[0] === '0' && t[0] !== '0')), k);\n"
+                 "      const others = sample(REAL_ROUTES.filter((r) => r !== t && !alike.includes(r)), __n - 1 - alike.length);\n"
+                 "      currentCards = sample([t, ...alike, ...others], __n);\n"
+                 "    }\n"
+                 "    // destination mode: every bus shows number + destination. Only the bus with the remembered\n"
+                 "    // number AND destination is correct; others share the number (other destination) or the destination (other number).\n"
+                 "    const __dst = window.PupilSenseDifficulty && window.PupilSenseDifficulty.destination;\n"
+                 "    if (__dst) {\n"
+                 "      const __D = (window.PupilSenseDestinations && window.PupilSenseDestinations.length >= __n) ? window.PupilSenseDestinations\n"
+                 "        : ['Jurong East', 'Woodlands', 'Tampines', 'Bedok', 'Yishun', 'Clementi', 'Punggol', 'Bishan', 'Toa Payoh', 'Pasir Ris'];\n"
+                 "      const __pos = Math.floor(Math.random() * __n);\n"
+                 "      const __dests = sample(__D, __n);\n"
+                 "      const __dups = Math.min(__n - 1, (window.PupilSenseDifficulty.duplicates || 1));\n"
+                 "      const __free = currentCards.map((_, i) => i).filter((i) => i !== __pos);\n"
+                 "      const __sameNum = sample(__free, __dups);                      // same number, different destination\n"
+                 "      const __sameDest = sample(__free.filter((i) => !__sameNum.includes(i)), Math.min(__dups, __free.length - __dups)); // same destination, different number\n"
+                 "      const __fill = sample(currentCards.filter((c) => c !== currentTarget), __n);\n"
+                 "      currentCards = currentCards.map((c, i) => (i === __pos || __sameNum.includes(i)) ? currentTarget : (c === currentTarget ? __fill.pop() : c));\n"
+                 "      window.__psDest = __dests.map((d, i) => __sameDest.includes(i) ? __dests[__pos] : d);\n"
+                 "      window.__psTargetPos = __pos;\n"
+                 "    } else { window.__psTargetPos = null; window.__psDest = null; }"),
+                ("    }, TIMING.memoryVisibleMs);",
+                 "    }, (window.PupilSenseDifficulty && window.PupilSenseDifficulty.memoryMs) || TIMING.memoryVisibleMs);"),
+                ("      }, TIMING.memoryFadeMs);",
+                 "      }, TIMING.memoryFadeMs + ((window.PupilSenseDifficulty && window.PupilSenseDifficulty.delayMs) || 0));"),
+            ]),
+            ("card identity by position (route@pos) for location mode", [
+                ("  let currentSelectedRoute = null;",
+                 "  let currentSelectedRoute = null;\n  let currentSelectedKey = null;"),
+                ("    currentCards.forEach((route) => {",
+                 "    currentCards.forEach((route, __i) => {"),
+                ("      button.dataset.route = route;",
+                 "      button.dataset.route = route;\n      button.dataset.key = route + '@' + __i;\n"
+                 "      if (window.__psDest) button.dataset.dest = window.__psDest[__i];"),
+                ("      number.textContent = route;\n      display.appendChild(number);",
+                 "      number.textContent = route;\n      display.appendChild(number);\n"
+                 "      if (window.__psDest) { const __dest = document.createElement('span'); __dest.className = 'route-dest'; __dest.textContent = window.__psDest[__i]; display.appendChild(__dest); }"),
+                ("        if (!currentSelectedRoute) gazeTarget(route, 'mouse');\n"
+                 "        else if (currentSelectedRoute === route) emgConfirmed({ source: 'mouse' });",
+                 "        const __key = route + '@' + __i;\n"
+                 "        if (!currentSelectedRoute) gazeTarget(__key, 'mouse');\n"
+                 "        else if (currentSelectedKey === __key) emgConfirmed({ source: 'mouse' });"),
+                ("    const route = String(routeNumber);\n    if (!currentCards.includes(route)) return false;\n"
+                 "    if (currentSelectedRoute) return currentSelectedRoute === route;\n    currentSelectedRoute = route;",
+                 "    let __key = String(routeNumber);\n"
+                 "    if (!__key.includes('@')) { const __i = currentCards.indexOf(__key); if (__i < 0) return false; __key = __key + '@' + __i; }\n"
+                 "    const route = __key.split('@')[0], __pos = Number(__key.split('@')[1]);\n"
+                 "    if (currentCards[__pos] !== route) return false;\n"
+                 "    if (currentSelectedRoute) return currentSelectedKey === __key;\n"
+                 "    currentSelectedRoute = route; currentSelectedKey = __key;\n"
+                 "    currentAttempt.selectedPos = __pos; currentAttempt.targetPos = window.__psTargetPos == null ? null : window.__psTargetPos;"),
+                ("    const card = [...$('busGrid').querySelectorAll('.bus-card')].find((element) => element.dataset.route === route);",
+                 "    const card = [...$('busGrid').querySelectorAll('.bus-card')].find((element) => element.dataset.key === currentSelectedKey);"),
+                ("    publish('gaze_target_locked', { attemptId: currentAttempt.id, route, searchTimeMs: currentAttempt.searchTimeMs, source });",
+                 "    publish('gaze_target_locked', { attemptId: currentAttempt.id, route, pos: __pos, dest: window.__psDest ? window.__psDest[__pos] : null, targetPos: currentAttempt.targetPos, searchTimeMs: currentAttempt.searchTimeMs, source });"),
+                ("    currentAttempt.isCorrect = currentSelectedRoute === currentTarget;",
+                 "    currentAttempt.isCorrect = currentSelectedRoute === currentTarget && (window.__psTargetPos == null || currentSelectedKey === currentTarget + '@' + window.__psTargetPos);"),
+                ("    const selectedCard = [...$('busGrid').querySelectorAll('.bus-card')].find((element) => element.dataset.route === currentSelectedRoute);",
+                 "    const selectedCard = [...$('busGrid').querySelectorAll('.bus-card')].find((element) => element.dataset.key === currentSelectedKey);"),
+                ("    publish('trial_memory_shown', { attemptId: currentAttempt.id, set: state.currentSet, rep: currentAttempt.repNumber, targetRoute: currentTarget });",
+                 "    publish('trial_memory_shown', { attemptId: currentAttempt.id, set: state.currentSet, rep: currentAttempt.repNumber, targetRoute: currentTarget, targetPos: window.__psTargetPos == null ? null : window.__psTargetPos, targetDest: window.__psDest ? window.__psDest[window.__psTargetPos] : null, cards: GRID_CARDS_SNAPSHOT() });"),
+                ("  function makeRound() {",
+                 "  function GRID_CARDS_SNAPSHOT() { return currentCards.slice(); }\n  function makeRound() {"),
+                ("    currentSelectedRoute = null;\n    makeRound();",
+                 "    currentSelectedRoute = null; currentSelectedKey = null;\n    makeRound();"),
+            ]),
             ("unselect / change selection (inputs.clearGazeTarget)", [
                 ("  function emgConfirmed(payload = {}) {",
                  "  function clearGazeTarget(source = 'external') {\n"
                  "    if (state.phase !== 'game' || !currentAttempt || currentAttempt.emgConfirmedAt || !currentSelectedRoute) return false;\n"
                  "    const previous = currentSelectedRoute;\n"
                  "    $('busGrid').querySelectorAll('.bus-card.gaze-locked').forEach((c) => c.classList.remove('gaze-locked'));\n"
-                 "    currentSelectedRoute = null;\n"
+                 "    currentSelectedRoute = null; currentSelectedKey = null;\n"
                  "    currentAttempt.selectedRoute = null; currentAttempt.gazeLockedAt = null; currentAttempt.searchTimeMs = null;\n"
                  "    currentAttempt.reselections = (currentAttempt.reselections || 0) + 1;\n"
                  "    publish('gaze_target_cleared', { attemptId: currentAttempt.id, route: previous, source });\n"
                  "    return true;\n"
                  "  }\n"
                  "  function emgConfirmed(payload = {}) {"),
-                ("        else if (currentSelectedRoute === route) emgConfirmed({ source: 'mouse' });",
-                 "        else if (currentSelectedRoute === route) emgConfirmed({ source: 'mouse' });\n"
-                 "        else { clearGazeTarget('mouse'); gazeTarget(route, 'mouse'); }"),
+                ("        else if (currentSelectedKey === __key) emgConfirmed({ source: 'mouse' });",
+                 "        else if (currentSelectedKey === __key) emgConfirmed({ source: 'mouse' });\n"
+                 "        else { clearGazeTarget('mouse'); gazeTarget(__key, 'mouse'); }"),
                 ("      gazeTarget: (routeNumber) => gazeTarget(routeNumber, 'webgazer'),",
                  "      gazeTarget: (routeNumber) => gazeTarget(routeNumber, 'webgazer'),\n"
                  "      clearGazeTarget: () => clearGazeTarget('webgazer'),"),
