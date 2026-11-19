@@ -1,19 +1,19 @@
-/* pupilsense-adapter.js — calibration + PupilSense workload overlay for "Catch Your Bus" (BN5213-UI-design).
+/* pupilsense-adapter.js — calibration, workload, adaptive difficulty and EMG confirmation for "Catch Your Bus".
  *
- * Injected by pupil_server.py (--game-dir) into the unchanged game.
+ * Injected by pupil_server.py into the unchanged game (BN5213-UI-design); the server also patches the game's
+ * app.js in memory for the 2x2 grid, difficulty levels, destinations and two/three-bus frames.
  *
- * Flow added after the Safety Check ("Start Session"):
- *   Calibration scene  1. camera + face positioning
- *                      2. WebGazer gaze calibration (9 dots, look only — no clicking) + validation (5 new dots)
- *                      3. PupilSense pupil baseline (game-background screen + bus-grid screen)
- *   -> then the game's own Warm-up continues.
+ * After the Safety Check ("Start Session") a calibration scene runs:
+ *   1. camera + face positioning (optional brightness lock)
+ *   2. WebGazer calibration: click each of 9 dots 5 times, then look at 5 check dots (validation)
+ *   3. pupil baseline: 10 s on the Remember screen + 10 s on the Find screen (PupilSense)
+ *   4. EMG muscle sensor: connect Arduino, 5 s relaxed baseline, check the threshold (or skip = mouse click)
  *
  * During the game:
- *   - WebGazer dwell (look ~1.2 s) selects the warm-up bus / a bus card via CatchYourBus.inputs (gaze lock).
- *     Confirmation stays with EMG / foot press (or the mouse demo).
- *   - Webcam frames (the same camera stream WebGazer opened) go to PupilSense (/ws); a slim bar at the top
- *     shows the live workload level per game phase. Observation only — difficulty is not changed.
- *   - Pupil samples during / just after a sit-to-stand are flagged and excluded.
+ *   - look at a bus for 2 s (dwell) to select it; look at another bus 2 s to change; EMG activation confirms
+ *   - live workload LOW / MEDIUM / HIGH from pupil size vs each screen's own baseline
+ *   - adaptive difficulty after each answer (6 levels); pupil samples just after a sit-to-stand are excluded
+ *   - end page with score and pupil dilation per game; Excel summary exported automatically
  */
 (() => {
   'use strict';
@@ -39,7 +39,6 @@
     sdMin: 0.05,                   // baseline SD is never taken as smaller than this
     baseS: FAST ? 6 : 10,          // seconds per baseline screen
     checkS: FAST ? 4 : 12,         // seconds per colour in the light check
-    calSettleMs: 900, calRecordMs: 1500, calHz: 10,   // gaze calibration per dot
     valSettleMs: 900, valRecordMs: 1200,              // gaze validation per dot
     dwellMs: 2000, dwellGraceMs: 350, dwellPad: 40,   // gaze selection (look 2 s to select)
     pageBg: getComputedStyle(document.documentElement).getPropertyValue('--page').trim() || '#F4F1E9',
@@ -47,13 +46,10 @@
   };
   // Bus-grid layout, moved in from the screen corners where webcam gaze is least accurate.
   // Needs pupil_server.py's app.js patch to change the card count from the original 9.
-  // ?grid=2x2 (default) or ?grid=3x2
-  const GRIDS = { '2x2': { cols: 2, rows: 2, cards: 4 }, '3x2': { cols: 3, rows: 2, cards: 6 } };
-  const GRID_KEY = GRIDS[new URLSearchParams(location.search).get('grid')] ? new URLSearchParams(location.search).get('grid') : '2x2';
-  const GRID = GRIDS[GRID_KEY];
+  const GRID_KEY = '2x2', GRID = { cols: 2, rows: 2, cards: 4 };
   window.PupilSenseGrid = { cards: GRID.cards, layout: GRID_KEY };
 
-  // ---- Difficulty levels (same 3x2 screen and brightness on every level; only timing/look-alikes change)
+  // ---- Difficulty levels (same 2x2 screen on every level; timing, look-alikes, destinations and bus count change)
   const LEVELS = [
     null,
     { memoryMs: 2500, delayMs: 1000, similarity: 'mid',  destination: false, duplicates: 0, twoBus: false, label: 'Look-alikes' },
@@ -64,7 +60,7 @@
     { memoryMs: 6000, delayMs: 2500, similarity: 'high', destination: true,  duplicates: 0, twoBus: true,  buses: 3, label: 'Three buses' },
   ];
   window.PupilSenseDestinations = ['Jurong East', 'Woodlands', 'Tampines', 'Bedok', 'Yishun', 'Clementi', 'Punggol', 'Bishan', 'Toa Payoh', 'Pasir Ris', 'Sengkang', 'Bukit Batok'];
-  const DIFF = { level: 1, adaptive: true, upAfter: 1, streak: 0, medAfter: 2, medStreak: 0, shiftOn: false, shifts: [] };
+  const DIFF = { level: 1, adaptive: true, upAfter: 1, streak: 0 };
   function applyDifficulty() {
     const L = LEVELS[DIFF.level], f = new URLSearchParams(location.search).get('fast') === '1' ? 0.3 : 1;
     window.PupilSenseDifficulty = { level: DIFF.level, memoryMs: Math.round(L.memoryMs * f), delayMs: Math.round(L.delayMs * f),
@@ -75,7 +71,7 @@
   applyDifficulty();
   // Gaze calibration mode: 'click' = WebGazer standard (click each dot 5x while looking at it, default),
   // 'look' = hands-free (look at each dot, recorded automatically). Choose with ?cal=look
-  const CAL_MODE = new URLSearchParams(location.search).get('cal') === 'look' ? 'look' : 'click';
+  const CAL_MODE = 'click';
   const now = () => performance.now() / 1000;
   const sleep = ms => new Promise(r => setTimeout(r, ms));
   const mean = a => a.reduce((x, y) => x + y, 0) / (a.length || 1);
@@ -191,15 +187,12 @@
   #ps-dwell{position:fixed;z-index:8900;height:10px;border-radius:6px;background:#267B53;display:none;pointer-events:none}
   body.ps-hidden-level #ps-level,body.ps-hidden-level #ps-meta,body.ps-hidden-level #ps-diff{visibility:hidden}`;
   document.head.insertAdjacentHTML('beforeend', `<style>${css}</style>`);
-  if (GRID_KEY !== '3x3') {
-    // 2x2: every level uses the same big, wide frames (one bus centred, or two buses side by side)
-    const wide = GRID.cols === 2;
-    const gw = wide ? 'min(1560px, 94vw)' : 'min(1240px, 78vw)';
-    const cw = wide ? 'calc(var(--bus-card-h)*2.05)' : 'calc(var(--bus-card-h)*.96)';
+  {   // 2x2: every level uses the same big, wide frames (one bus centred, or two/three buses side by side)
+    const gw = 'min(1560px, 94vw)', cw = 'calc(var(--bus-card-h)*2.05)';
     document.head.insertAdjacentHTML('beforeend', `<style id="ps-grid-css">
       :root{--bus-card-h:min(31svh,calc((100svh - 300px)/2)) !important;--bus-card-w:${cw} !important;--bus-row-gap:clamp(36px,6svh,72px) !important}
-      ${wide ? `.game-screen .bus-card,.ps-fake .bus-card{width:var(--bus-card-w) !important;padding:10px 14px !important}
-      .game-screen .bus-card .bus-art:not(.ps-pair):not(.ps-pair>.bus-art){height:100%;width:auto !important;max-width:100%;margin:0 auto}` : ''}
+      .game-screen .bus-card,.ps-fake .bus-card{width:var(--bus-card-w) !important;padding:10px 14px !important}
+      .game-screen .bus-card .bus-art:not(.ps-pair):not(.ps-pair>.bus-art){height:100%;width:auto !important;max-width:100%;margin:0 auto}
       .game-screen .bus-grid,.ps-fake .bus-grid{width:${gw} !important;margin:clamp(10px,3svh,40px) auto 0 !important;
         grid-template-columns:repeat(${GRID.cols},1fr) !important;justify-items:center}
     </style>`);
@@ -217,8 +210,7 @@
     <div class="row"><label>Participant <input id="ps-pid" placeholder="P01" style="width:90px;border:1px solid #D7DED7;border-radius:6px;padding:4px 6px"></label>
       <button class="ps-btn" id="ps-xlsx">Export Excel</button></div>
     <div class="res" id="ps-r-xlsx"></div>
-    <div class="row"><button class="ps-btn" id="ps-recal">Calibrate again</button><button class="ps-btn" id="ps-check">Light check</button>
-      <button class="ps-btn" id="ps-export">Export CSV</button></div>
+    <div class="row"><button class="ps-btn" id="ps-recal">Calibrate again</button><button class="ps-btn" id="ps-check">Light check</button></div>
     <div class="res" id="ps-r-gaze"></div><div class="res" id="ps-r-base"></div><div class="res" id="ps-r-check"></div><div class="res" id="ps-r-cam"></div>
     <div class="ps-eyes"><img id="ps-eyeL" alt=""><img id="ps-eyeR" alt=""><span class="res" id="ps-mm"></span></div>
     <canvas id="ps-chart"></canvas>
@@ -230,7 +222,6 @@
       <label title="For testing without eye tracking: the mouse pointer acts as the gaze"><input type="checkbox" id="ps-mgaze"> Mouse as gaze (test)</label></div>
     <div class="row"><label><input type="checkbox" id="ps-adapt" checked> Adaptive difficulty</label>
       <label>Raise after <input type="number" id="ps-upafter" value="${DIFF.upAfter}" min="1" max="10" style="width:44px"> LOW + correct</label>
-      <label title="MEDIUM this many times in a row (answers correct) = resting pupil has drifted: re-anchor the baseline to recent trials and go up a level"><input type="checkbox" id="ps-shift"> Re-anchor after <input type="number" id="ps-medafter" value="2" min="1" max="10" style="width:44px"> MEDIUM + correct</label>
       <label>Level <select id="ps-lvl">${LEVELS.slice(1).map((L, i) => `<option value="${i + 1}">${i + 1} · ${L.label}</option>`).join('')}</select></label></div>
     <div class="res" id="ps-r-diff" style="color:#78847B">Starts at level 1. Up after LOW + correct; down after a wrong answer or HIGH; MEDIUM + correct stays.</div>
     <div class="row"><label>Dwell <input type="number" id="ps-dwellms" value="${CFG.dwellMs}" min="400" max="4000" step="100" style="width:64px"> ms</label>
@@ -250,7 +241,7 @@
       <i id="ps-emg-fill" style="position:absolute;left:0;top:0;bottom:0;width:0;background:#7FA88F"></i><b id="ps-emg-thr" style="position:absolute;top:-2px;bottom:-2px;width:3px;background:#C2412D;display:none"></b></div>
       <span id="ps-emg-val" style="font-size:12px;color:#425248;min-width:170px">—</span></div>
     <div class="res" id="ps-r-emg" style="color:#78847B">Not connected. Upload firmware/BN5213_EMG_filtered (raw EMG on A0) to the Arduino Uno, then Connect Arduino (Chrome/Edge). (Simulation button = researcher test only; hold M to activate.)</div>
-    <div class="res" style="color:#78847B">Observation only — difficulty is not changed. Each game phase is compared with its own seated baseline.</div>
+    <div class="res" style="color:#78847B">Each game screen is compared with its own seated baseline.</div>
   </div>
   <div id="ps-calib" role="dialog" aria-modal="true" aria-labelledby="ps-c-title">
     <div class="card">
@@ -283,8 +274,6 @@
   $('ps-disttol').oninput = e => { CFG.distTol = Math.min(0.5, Math.max(0.03, (+e.target.value || 15) / 100)); };
   $('ps-adapt').onchange = e => { DIFF.adaptive = e.target.checked; DIFF.streak = 0; };
   $('ps-upafter').oninput = e => { DIFF.upAfter = Math.max(1, +e.target.value || 1); };
-  $('ps-shift').onchange = e => { DIFF.shiftOn = e.target.checked; DIFF.medStreak = 0; };
-  $('ps-medafter').oninput = e => { DIFF.medAfter = Math.max(1, +e.target.value || 2); };
   $('ps-lvl').onchange = e => { DIFF.level = +e.target.value; DIFF.streak = 0; applyDifficulty();
     $('ps-r-diff').textContent = `Level set to ${DIFF.level} (${LEVELS[DIFF.level].label}) by researcher — applies from the next trial.`; };
   applyDifficulty();
@@ -582,14 +571,14 @@
     const t = now(), d = ev.detail || {};
     switch (ev.type) {
       case 'screen_changed': screen = d.screen; if (d.screen !== 'game') phase = d.screen; resetDwell(); break;
-      case 'session_started': warmupLocked = false; DIFF.streak = 0; DIFF.medStreak = 0; DIFF.shifts = []; openCalibration(); break;
+      case 'session_started': warmupLocked = false; DIFF.streak = 0; openCalibration(); break;
       case 'warmup_gaze_locked': warmupLocked = true; resetDwell(); break;
       case 'trial_memory_shown':
         phase = 'memory'; attempt = { attemptId: d.attemptId, set: d.set, rep: d.rep };
         showMemoryGrid(d.targetPos, d.targetRoute, d.targetDest, d.two);
         document.body.classList.toggle('ps-pairs', !!d.two);
         document.body.classList.toggle('ps-three', !!(d.two && d.two.routes.length >= 3));
-        trial = { attemptId: d.attemptId, set: d.set, rep: d.rep, target: d.targetRoute, targetPos: d.targetPos ?? '', targetDest: d.targetDest ?? '', destMode: d.targetDest != null, two: d.two || null, memLocation: false, memStart: t,
+        trial = { attemptId: d.attemptId, set: d.set, rep: d.rep, target: d.targetRoute, targetPos: d.targetPos ?? '', targetDest: d.targetDest ?? '', destMode: d.targetDest != null, two: d.two || null, memStart: t,
                   sinceStandUp: settleUntil ? +(t - (settleUntil - CFG.settleS)).toFixed(2) : '' };
         break;
       case 'trial_search_started':
@@ -598,13 +587,11 @@
         break;
       case 'gaze_target_locked':
         phase = 'confirm'; resetDwell();
-        if (trial && d.second) { trial.lockAt = t; trial.selected2 = d.route; trial.selectedDest2 = d.dest ?? ''; trial.searchTimeMs2 = d.searchTimeMs; }
-        else if (trial) { trial.lockAt = t; trial.searchTimeMs = d.searchTimeMs; trial.selected = d.route; trial.selectedPos = d.pos ?? ''; trial.selectedDest = d.dest ?? ''; trial.lockSource = d.source; }
+        if (trial) { trial.lockAt = t; trial.searchTimeMs = d.searchTimeMs; trial.selected = d.route; trial.selectedPos = d.pos ?? ''; trial.selectedDest = d.dest ?? ''; trial.lockSource = d.source; }
         break;
       case 'gaze_target_cleared':
         resetDwell();
-        if (d.second) { if (trial) { trial.reselections = (trial.reselections || 0) + 1; trial.selected2 = ''; trial.selectedDest2 = ''; } }
-        else { phase = 'search'; if (trial) { trial.reselections = (trial.reselections || 0) + 1; trial.lockAt = null; } }
+        phase = 'search'; if (trial) { trial.reselections = (trial.reselections || 0) + 1; trial.lockAt = null; }
         break;
       case 'emg_confirmed':
         phase = 'movement';
@@ -619,7 +606,6 @@
   });
 
   // ----------------------------------------- destination-mode memory screen ----
-  let memLocation = false;   // (kept for the pupil-baseline choice; false in destination mode: screen stays plain)
   function showMemoryGrid(pos, route, dest, two) {
     hideMemoryGrid();
     if (!dest && !two) return;
@@ -661,32 +647,14 @@
     if (!DIFF.adaptive) { tr.level_change = 0; tr.level_reason = 'adaptive off'; return; }
     const before = DIFF.level, lvl = tr.search_level;
     let reason;
-    if (!tr.correct) { DIFF.level = Math.max(1, DIFF.level - 1); DIFF.streak = 0; DIFF.medStreak = 0; reason = 'wrong answer'; }
-    else if (lvl === 'high') { DIFF.level = Math.max(1, DIFF.level - 1); DIFF.streak = 0; DIFF.medStreak = 0; reason = 'correct but HIGH workload'; }
+    if (!tr.correct) { DIFF.level = Math.max(1, DIFF.level - 1); DIFF.streak = 0; reason = 'wrong answer'; }
+    else if (lvl === 'high') { DIFF.level = Math.max(1, DIFF.level - 1); DIFF.streak = 0; reason = 'correct but HIGH workload'; }
     else if (lvl === 'low') {
-      DIFF.streak++; DIFF.medStreak = 0;
+      DIFF.streak++;
       if (DIFF.streak >= DIFF.upAfter) { DIFF.level = Math.min(LEVELS.length - 1, DIFF.level + 1); DIFF.streak = 0; reason = `${DIFF.upAfter}× LOW + correct`; }
       else reason = `LOW + correct (${DIFF.streak}/${DIFF.upAfter})`;
     }
-    else if (lvl === 'medium') {
-      DIFF.streak = 0; DIFF.medStreak++;
-      if (DIFF.shiftOn && DIFF.medStreak >= DIFF.medAfter) {
-        // MEDIUM several times in a row while answering correctly: the player's resting pupil has probably
-        // drifted (fatigue, arousal, light). Re-anchor the baseline to the recent trials and move up.
-        const recent = trials.slice(-(DIFF.medAfter - 1)).concat([tr]).map(x => x.search_pupil).filter(isFinite);
-        const newBase = median(recent), oldBase = baseline.search.pupil;
-        if (isFinite(newBase)) {
-          const dMem = baseline.memory ? newBase - oldBase : 0;
-          baseline.search.pupil = newBase;
-          if (baseline.memory) baseline.memory.pupil += dMem;        // shift the memory-screen baseline by the same amount
-          DIFF.shifts.push({ trial: `${tr.set}-${tr.rep}`, from: +oldBase.toFixed(3), to: +newBase.toFixed(3), at: new Date().toISOString() });
-          tr.baseline_shift = +(newBase - oldBase).toFixed(3);
-          live.ema = null; live.n = 0;                                  // restart live smoothing against the new baseline
-        }
-        DIFF.level = Math.min(LEVELS.length - 1, DIFF.level + 1); DIFF.medStreak = 0;
-        reason = `${DIFF.medAfter}× MEDIUM + correct → baseline re-anchored (${fmt(oldBase)} → ${fmt(newBase)} mm)`;
-      } else reason = `correct, MEDIUM workload — stay (${DIFF.medStreak}/${DIFF.medAfter} to re-anchor)`;
-    }
+    else if (lvl === 'medium') { DIFF.streak = 0; reason = 'correct, MEDIUM workload — stay'; }
     else reason = 'correct, no reliable pupil reading — stay';
     tr.level_change = DIFF.level - before; tr.level_reason = reason; tr.level_next = DIFF.level;
     applyDifficulty();
@@ -772,19 +740,15 @@
       let again = true;
       while (again) {
         stepMarks(2);
-        view(CAL_MODE === 'click'
-          ? { title: 'Click the red dot.', text: 'A red dot will appear in different places, one at a time. Look at it and click it 5 times — keep looking at it while you click. It turns green, then the next dot appears.' }
-          : { title: 'Follow the green dot.', text: 'A green dot will appear in different places. Look at the centre of each dot until it moves. You do not need to click.' });
+        view({ title: 'Click the red dot.', text: 'A red dot will appear in different places, one at a time. Look at it and click it 5 times — keep looking at it while you click. It turns green, then the next dot appears.' });
         if (await choose([{ label: 'Start', value: 'go', primary: true }, { label: 'Skip eye tracking', value: 'skip' }]) === 'skip') { gazeCal = { skipped: true }; break; }
         skipRequested = false;
         hideCard();
         await webgazer.clearData();
-        const ok = CAL_MODE === 'click' ? await runClickCalibration() : await runGazeCalibration();
+        const ok = await runClickCalibration();
         if (!ok) { gazeCal = { skipped: true }; break; }
-        if (CAL_MODE === 'click') {
-          view({ title: 'Now just look.', text: 'Orange dots will appear one at a time. Look at each one — do not click. This checks how well the eye tracking works.' });
-          await choose([{ label: 'Start check', value: 1, primary: true }]); hideCard();
-        }
+        view({ title: 'Now just look.', text: 'Orange dots will appear one at a time. Look at each one — do not click. This checks how well the eye tracking works.' });
+        await choose([{ label: 'Start check', value: 1, primary: true }]); hideCard();
         const v = await runGazeValidation();
         gazeCal = v; gazeCal.mode = CAL_MODE;
         if (!isFinite(v.median)) {
@@ -879,17 +843,6 @@
     void dot.offsetWidth;                  // restart the animation
     dot.classList.add('zoom');
     return { x, y };
-  }
-  async function runGazeCalibration() {
-    for (const [fx, fy] of CAL_POINTS) {
-      if (skipRequested) return false;
-      const { x, y } = await showDot(fx, fy);
-      await sleep(CFG.calSettleMs);
-      const n = Math.round(CFG.calRecordMs / 1000 * CFG.calHz);
-      for (let i = 0; i < n; i++) { webgazer.recordScreenPosition(x, y, 'click'); await sleep(1000 / CFG.calHz); }
-    }
-    $('ps-dot').style.display = 'none';
-    return true;
   }
   function runClickCalibration(clicksPerDot = 5) {   // WebGazer-style: click each dot 5x while looking at it
     return new Promise(resolve => {
@@ -1134,7 +1087,7 @@
       mem_pupil: m.pupil, mem_pupil_incl_postmove: mAll.pupil, mem_valid: m.validFrac, mem_postmove_frac: mAll.postFrac,
       search_pupil: s.pupil, search_valid: s.validFrac, search_postmove_frac: s.postFrac,
       base_memory: baseline?.memory?.pupil, base_search: baseline?.search?.pupil,
-      mem_index: indexFor(m.pupil, tr.memLocation ? 'search' : 'memory'), search_index: indexFor(s.pupil, 'search'),
+      mem_index: indexFor(m.pupil, 'memory'), search_index: indexFor(s.pupil, 'search'),
     });
     tr.mem_level = levelOf(tr.mem_index); tr.search_level = levelOf(tr.search_index);
   }
@@ -1163,7 +1116,7 @@
   function tick() {
     if (!streaming || calibrating) { if (calibrating) { setLevel(null, 'CALIBRATING'); $('ps-meta').textContent = 'Calibration in progress'; } return; }
     const t = now();
-    const which = phase === 'memory' ? (memLocation ? 'search' : 'memory') : (phase === 'search' || phase === 'confirm') ? 'search' : null;
+    const which = phase === 'memory' ? 'memory' : (phase === 'search' || phase === 'confirm') ? 'search' : null;
     const warn = [];
     if (!baseline) {
       setLevel(null, 'NO BASELINE'); $('ps-meta').textContent = 'Pupil baseline not recorded — Pupil ▾ → Calibrate again';
@@ -1222,22 +1175,12 @@
   }
 
   // ---------------------------------------------------------------- export ----
-  function csv(rows) {
-    if (!rows.length) return '';
-    const keys = Object.keys(rows[0]);
-    return [keys.join(','), ...rows.map(r => keys.map(k => `"${String(r[k] ?? '').replace(/"/g, '""')}"`).join(','))].join('\r\n');
-  }
-  function download(name, text, type = 'text/csv') {
-    const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([text], { type })); a.download = name;
-    document.body.appendChild(a); a.click(); a.remove();
-  }
   function exportRows() {
-    const two = (a, b) => (b ? `${a ?? ''} + ${b}` : (a ?? ''));
     const tr = trials.map(t => ({ attemptId: t.attemptId, set: t.set, rep: t.rep,
       target: t.two ? t.two.routes.join(' + ') : t.target, target_dest: t.two ? t.two.dests.join(' + ') : t.targetDest,
       selected: String(t.selected ?? '').split('|').join(' + '), selected_dest: String(t.selectedDest ?? '').split('|').join(' + '), buses_to_remember: t.two ? t.two.routes.length : 1,
       destination_mode: t.destMode, correct: t.correct,
-      level_played: t.level_played ?? '', level_next: t.level_next ?? '', level_change: t.level_change ?? '', level_reason: t.level_reason ?? '', baseline_shift_mm: t.baseline_shift ?? '',
+      level_played: t.level_played ?? '', level_next: t.level_next ?? '', level_change: t.level_change ?? '', level_reason: t.level_reason ?? '',
       lock_source: t.lockSource, reselections: t.reselections ?? 0, search_time_ms: t.searchTimeMs, s_since_stand_up_at_memory: t.sinceStandUp,
       mem_pupil_mm: fmt(t.mem_pupil, 3), mem_pupil_incl_postmove_mm: fmt(t.mem_pupil_incl_postmove, 3), mem_valid: fmt(t.mem_valid), mem_postmove_frac: fmt(t.mem_postmove_frac),
       search_pupil_mm: fmt(t.search_pupil, 3), search_valid: fmt(t.search_valid), search_postmove_frac: fmt(t.search_postmove_frac),
@@ -1285,14 +1228,6 @@
     } catch (e) { $('ps-r-xlsx').textContent = 'Excel export failed: ' + e.message; }
   }
   $('ps-xlsx').onclick = () => exportExcel(false);
-  $('ps-export').onclick = () => {
-    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
-    const { tr, sm } = exportRows();
-    if (tr.length) download(`pupilsense_trials_${stamp}.csv`, csv(tr));
-    if (sm.length) download(`pupilsense_samples_${stamp}.csv`, csv(sm));
-    download(`pupilsense_meta_${stamp}.json`, JSON.stringify({ gazeCalibration: gazeCal, baseline, lightCheck: check, settings: CFG,
-      gridLayout: GRID_KEY, difficultyLevels: LEVELS.slice(1), adaptive: { ...DIFF }, baselineShifts: DIFF.shifts, calibrationMode: CAL_MODE, exposureLocked, webgazerVersion: WG_VERSION, exportedAt: new Date().toISOString() }, null, 2), 'application/json');
-  };
 
   window.PupilSenseOverlay = { getSamples: () => samples, getTrials: () => trials, getBaseline: () => baseline,
                                getGazeCalibration: () => gazeCal, openCalibration, simulateGaze: (x, y) => onGaze({ x, y }, true), config: CFG };

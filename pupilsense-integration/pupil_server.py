@@ -3,9 +3,10 @@ pupil_server.py — live webcam server around the PupilSense / EyeDentify engine
 (https://huggingface.co/spaces/vijulshah/pupilsense, code from
  https://github.com/vijulshah/webcam-based-pupil-diameter-estimation).
 
-Put this file and pupil_workload.html INSIDE the cloned `pupilsense` folder, then:
-    python pupil_server.py                 # ResNet18, http://localhost:8000
-    python pupil_server.py --model ResNet50
+Put this file, pupilsense-adapter.js, xlsx_report.py and pupil_workload.html INSIDE the cloned `pupilsense`
+folder, then:
+    python pupil_server.py --game-dir BN5213-UI-design     # game at http://localhost:8000/game/
+                                                           # monitor at http://localhost:8000/monitor
 
 It uses the authors' own code unchanged:
   * preprocessing.dataset_creation.EyeDentityDatasetCreation  -> face check, 32x16 eye crops,

@@ -1,43 +1,35 @@
-# PupilSense + WebGazer integration for Catch Your Bus
+# Catch Your Bus — eye tracking, pupil workload and EMG integration
 
-Adds eye tracking, pupil-based workload measurement and adaptive difficulty to the
-Catch Your Bus prototype **without changing any of the game's own files**.
+Adds gaze selection (WebGazer), pupil-based workload (PupilSense), adaptive difficulty and EMG confirmation
+to the Catch Your Bus prototype **without changing the game's own files**.
 
-| File | What it is |
+| File | What it does |
 |---|---|
-| `pupil_server.py` | Python server: runs the PupilSense pupil model on the GPU, serves the game, and patches `app.js` in memory (the file on disk is untouched) |
-| `pupilsense-adapter.js` | Browser overlay injected into the game: calibration, gaze selection, workload bar, adaptive difficulty, data export |
-| `xlsx_report.py` | Builds the end-of-session Excel summary (used by the server) |
-| `pupil_workload.html` | Optional stand-alone pupil monitor (light check, baseline, LOW/MEDIUM/HIGH without the game) |
+| `pupil_server.py` | Runs the PupilSense pupil model, serves the game with the overlay, patches `app.js` in memory, serves the EMG team's code, builds the Excel file |
+| `pupilsense-adapter.js` | Overlay injected into the game: calibration, gaze dwell, live workload, adaptive levels, EMG confirmation, end page |
+| `xlsx_report.py` | End-of-session Excel summary |
+| `pupil_workload.html` | Researcher monitor at `/monitor`: live camera, workload, pupil chart and EMG of the running game |
 
-> **Research prototype.** Webcam eye tracking and webcam pupil size are approximate.
-> Do not use for clinical assessment.
-
----
-
-## How it works
+> Research prototype. Webcam eye tracking and webcam pupil size are approximate; not for clinical use.
 
 ```
-Browser (localhost:8000/game/)                    Python (pupil_server.py)
-  Catch Your Bus (unchanged files)
-  + pupilsense-adapter.js
-  + WebGazer (gaze, runs in browser)
-  webcam frame ──── WebSocket /ws ──────────────►  PupilSense: face → eye crops → blink check
-                ◄── {left_mm, right_mm, blink} ──  → ResNet18 → pupil diameter (mm)
+Browser: localhost:8000/game/                         pupil_server.py
+  Catch Your Bus (unchanged) + pupilsense-adapter.js
+  WebGazer (gaze, in the browser)
+  webcam frames ─────── WebSocket /ws ────────────►  PupilSense: face → eye crops → ResNet18 → pupil mm
+  Arduino EMG ── Web Serial (EMG team's code, /emg/lib) ── activation confirms the selected bus
 ```
-
-The game and overlay talk through the game's public API (`CatchYourBus.subscribe`, `CatchYourBus.inputs`).
-
----
 
 ## Setup (once)
 
-Requirements: Windows, Anaconda, Git, Git LFS, Chrome or Edge, NVIDIA GPU recommended.
+Windows, Anaconda, Git + Git LFS, Chrome or Edge; NVIDIA GPU recommended.
 
 ```bat
 git lfs install
 git clone https://huggingface.co/spaces/vijulshah/pupilsense
+cd pupilsense
 git clone https://github.com/WENTING999/BN5213-UI-design
+git clone https://github.com/WENTING999/BN5213-final-EMG
 
 conda create -n pupil python=3.10 -y
 conda activate pupil
@@ -45,173 +37,102 @@ pip install torch torchvision --index-url https://download.pytorch.org/whl/cu126
 pip install "mediapipe==0.10.21" "numpy<2" transformers opencv-python pillow fastapi "uvicorn[standard]" openpyxl
 ```
 
-Copy the four files from this folder **into the `pupilsense` folder** (next to its `app.py`).
-The server must run from there, because it imports the PupilSense code and model weights.
-
-Check `pupilsense\pre_trained_models\ResNet18\left_eye.pt` is ~47 MB. If it is tiny, run `git lfs pull` inside `pupilsense`.
-
-The PupilSense model and weights are **not** included in this repo (CC BY-NC 4.0, non-commercial; large files).
-
----
+Copy the four files of this folder into `pupilsense` (next to its `app.py`): the server imports the PupilSense
+code and weights from there. `pre_trained_models\ResNet18\left_eye.pt` must be ~47 MB (else `git lfs pull`).
+The PupilSense model is not included here (CC BY-NC 4.0).
 
 ## Run
 
 ```bat
 conda activate pupil
-cd <path>\pupilsense
-python pupil_server.py --game-dir ..\BN5213-UI-design
+cd C:\Users\<you>\pupilsense
+python pupil_server.py --game-dir BN5213-UI-design
 ```
 
-Open **http://localhost:8000/game/** (must be `localhost`, not `127.0.0.1`).
-**Live monitor for the researcher:** while the game runs, open **http://localhost:8000/monitor** in a second window (e.g. on a second screen). It shows the game's live camera, the eye crops, the current workload level, pupil vs baseline, screen, set/game, difficulty and a 60 s pupil chart. Readings and workload are relayed from the game by the server (nothing extra is saved). The page's own standalone tests are under *Show standalone monitor*. The camera box shows the webcam directly (smooth); if that stream freezes or is black it switches to the game's relayed frames by itself, and says so.
+The startup text should list `Overlay script: latest`, `Monitor page: latest` and the `EMG code` folder.
 
-Add `?fast=1` for short timers when testing, `?grid=3x2` for 6 buses instead of 4. Stop with `Ctrl + C`.
-Re-record the pupil baseline if you change the grid.
+- Game: **http://localhost:8000/game/** (Chrome/Edge, `localhost`, allow the camera)
+- Researcher monitor (optional, second window): **http://localhost:8000/monitor**
 
-Protocol: **2 sets × 5 games** with a 60 s rest between sets (change with `--sets 3 --games 10`).
-
-Server options: `--model ResNet50`, `--port 8000`, `--no-blink`, `--exact` (authors' original, slower pipeline).
-
----
+Options: `--sets 2 --games 5` (default protocol), `--model ResNet50`, `--port 8000`, `--emg-dir <folder>`.
+Add `?fast=1` to the game URL for short timers when testing. Stop the server with `Ctrl + C`.
 
 ## Session flow
 
-1. **Safety check** (game) → Start Session
-2. **Calibration** (overlay)
-   - Camera: face in the box, live lighting check, optional **Lock brightness**
-   - Eye tracking: click each red dot 5× while looking at it (one at a time), then look at 5 orange check dots → accuracy rated Good / OK / Poor against bus-card size.
-     Hands-free version: `?cal=look`
-   - Pupil baseline: 10 s on the game background + 10 s on a bus-grid screen
-3. **Warm-up** (game): look at the bus 2 s to lock, then tighten the EMG muscle for 0.5 s (or click)
-4. **Game**: remember the bus → look at the matching bus 2 s → tighten the EMG muscle to confirm (or click). Look at another bus 2 s to change your mind.
+1. **Safety check** → Start Session
+2. **Calibration**
+   1. Camera: participant ID, face in the box, lighting check, optional *Lock brightness*
+   2. Eye tracking: click each red dot 5× while looking at it, then look at 5 orange check dots (rated Good / OK / Poor)
+   3. Pupil baseline: 10 s on the Remember screen + 10 s on the Find screen, looking at a cross
+   4. Muscle sensor: *Connect Arduino* → 5 s relaxed baseline → activate to pass the red threshold line → continue
+      (*Skip* = confirm with a mouse click)
+3. **Practice**: look at the bus 2 s, then activate the muscle for 0.5 s
+4. **Game** (2 sets × 5 games): remember the bus(es) → look at the matching bus 2 s → activate the muscle to confirm.
+   Looking at another bus for 2 s changes the selection.
+5. **End page**: score, highest level, pupil dilation in every game (shaded by level), table by level.
+   The Excel summary downloads automatically and is saved in `pupilsense\exports\`.
 
----
+## Difficulty levels (2×2 grid, same screen brightness on every level)
 
-## Changes applied to the game at runtime (please consider building these in properly)
+| Level | Remember | Shown | Blank | Decoys |
+|---|---|---|---|---|
+| 1 Look-alikes (start) | 1 number | 2.5 s | 1.0 s | half look-alike numbers |
+| 2 Look-alikes, fast | 1 number | 1.8 s | 2.5 s | all look-alike numbers |
+| 3 Number + destination | 1 bus | 2.2 s | 2.5 s | same number / other destination, same destination / other number |
+| 4 Two buses | 2 buses | 4.5 s | 2.0 s | frames of 2 buses, one thing wrong |
+| 5 Two buses, fast | 2 buses | 3.2 s | 3.5 s | frames of 2 buses, one thing wrong |
+| 6 Three buses | 3 buses | 6.0 s | 2.5 s | frames of 3 buses, one thing wrong |
+
+"One thing wrong": a wrong destination, two destinations swapped, or a look-alike number. The player makes one
+selection: the frame showing exactly the remembered buses.
+
+**Adaptive rule** (after each answer, using the workload on the Find screen):
+wrong → down 1 · correct + HIGH → down 1 · correct + LOW → up 1 · correct + MEDIUM or no reading → stay.
+
+## Workload
+
+- Pupil size ~20 readings/s, smoothed over 1.5 s, compared with the baseline **of the same screen**.
+- Δ = pupil − baseline. **MEDIUM** if Δ ≥ max(2 × SD, 0.10 mm); **HIGH** if Δ ≥ max(3 × SD, 0.20 mm); else LOW
+  (SD = baseline SD, at least 0.05 mm). Adjustable in Pupil ▾.
+- **PAUSED** when the reading can't be trusted: just stood up (4 s), face lost / blinking, light changed > 15 %,
+  or sitting closer / farther than at baseline (face height > 15 %).
+
+## EMG confirmation
+
+Uses the EMG team's browser code from `BN5213-final-EMG` unchanged (Web Serial, clock sync, envelope detector).
+Threshold = relaxed mean + max(3 SD, 10 ADC), held 30 ms. An activation confirms only if it **starts after** the bus
+was selected and the eyes are still on that bus; otherwise it is logged as rejected. A mouse click always works as
+a backup. Arduino firmware for this branch is still being finalised.
+
+## Researcher panel (Pupil ▾)
+
+Export Excel · Calibrate again · Light check · show level to participant · gaze selection · brightness lock ·
+gaze dot · mouse as gaze (testing) · adaptive on/off · manual level · dwell · distance check · smoothing ·
+workload thresholds · EMG connect / simulation (M key) / baseline / confirm on-off.
+
+## Excel summary
+
+*Summary* (session, results, by set, by level, charts) · *Pupil diameter* (baselines, per-game Remember/Find mean,
+Δ, min/max, left/right, blinks, charts) · *Trials* (one row per game incl. confirmation source and EMG onset) ·
+*Pupil samples* (every reading) · *EMG* (envelope 20/s and every activation) · *Levels and settings*.
+
+## Changes made to the game at runtime
+
+`pupil_server.py` patches `app.js` in memory (the file on disk is untouched); if `app.js` changes so a patch no
+longer fits, the server prints a warning and skips that feature.
 
 | Change | Why |
 |---|---|
-| **2×2 grid (4 buses)** by default, `?grid=3x2` for 6 buses, instead of 3×3 | Webcam gaze is least accurate near screen corners; bigger, more widely spaced targets |
-| **Change selection** (`inputs.clearGazeTarget()`) | Players could not unselect a wrongly locked bus |
-| **Difficulty settings** (memory time, blank delay, look-alike numbers, destinations, two buses) | Needed for adaptive difficulty |
-| **2 sets × 5 games** instead of 3 × 10 | Shorter sessions for older players |
-| **Bus identity by position** (`route@position`) | Several buses can show the same number at the hardest levels |
-| **Two buses per frame** (wider frames) | Two-bus levels |
-
-If `app.js` changes so a patch no longer fits, the server prints a warning and that feature is skipped.
-
----
-
-## EMG muscle confirmation (BN5213-final-EMG)
-
-The EMG team's browser code is reused unchanged (`web/lib/*.mjs`: Web Serial reader, clock sync, 20 ms envelope
-detector). `pupil_server.py` serves it at `/emg/lib/` and finds it automatically when the repo is cloned next to it:
-
-```
-cd C:\Users\rojan\pupilsense
-git clone https://github.com/WENTING999/BN5213-final-EMG.git
-```
-
-(or start the server with `--emg-dir <folder>`). At startup it prints `EMG code: <folder>` or `NOT FOUND`.
-
-1. Upload **`firmware/BN5213_EMG_filtered/BN5213_EMG_filtered.ino`** (in this zip) to the Arduino Uno with the
-   Arduino IDE, sensor **RAW** output on A0. Close the IDE serial monitor afterwards (only one program can use the port).
-   It samples A0 at **1000 Hz** and filters on the board, then sends 200 values/s in the EMG team's protocol:
-   - band-pass **20–450 Hz** (4th-order Butterworth high-pass 20 Hz + 2nd-order low-pass 450 Hz): removes movement
-     drift, electrode offset and high-frequency noise
-   - **50 Hz notch** (Q 30) plus 100 Hz and 150 Hz harmonics: Singapore mains hum
-   - full-wave rectify and average 5 samples → envelope (ADC counts), × `BN_EMG_GAIN` (default 1)
-   In a bench test with a 40-count 50 Hz hum on the input, the resting envelope was 1.5 ADC with the notch
-   vs 26 ADC without (the hum alone would have looked like a muscle activation).
-   If a strong contraction does not pass the red threshold line in calibration, set `#define BN_EMG_GAIN 2.0f`
-   (or 4.0f) at the top of the sketch and upload again. The calibration screen and Excel show the filter the board
-   reports ("No filter reported" = the original unfiltered firmware is still on the board).
-   Do not use the original `BN5213_EMG.ino` with a raw EMG output: it samples only 200 Hz with no filtering.
-   **Checking the electrodes in the Arduino IDE Serial Plotter:** set `#define BN_EMG_PLOTTER 1`, upload, open
-   Tools → Serial Plotter at **115200 baud**. You see `raw_minus_offset` (with hum), `filtered` (20–450 Hz, no hum)
-   and `envelope`. Set it back to `0` and upload again before playing, and close the plotter (it blocks the port).
-2. Calibration step **4 Muscle sensor**: *Connect Arduino* (Chrome/Edge asks for the port) → 5 s relaxed baseline →
-   *Check the threshold*: activate the muscle, the bar must pass the red line (orange), relax (green).
-   *Threshold OK — continue* or *Record baseline again*. *Skip* = confirm with a mouse click.
-   (Pupil ▾ → EMG → *Simulation* is a researcher-only test without hardware; hold M to activate.)
-3. Threshold = relaxed mean + max(3 SD, 10 ADC); onset must stay above it 30 ms; 300 ms refractory.
-4. A confirmation counts only if the activation **starts after** the bus was selected and the eyes are still on that
-   bus (otherwise it is logged as rejected). Practice round: hold 0.5 s. Mouse click always works as a backup.
-5. Pupil ▾ → *EMG muscle sensor*: connect / simulation / redo baseline / disconnect, live envelope bar,
-   *Confirm with EMG* on/off. The top bar shows `EMG ready` / `EMG ACTIVE`; the monitor page shows EMG live.
-6. Excel: Trials get *Confirmed by* (EMG / mouse) and *EMG onset after selection (s)*; sheet **EMG** has the envelope
-   at 20 readings/s plus every activation / confirm / rejection; Summary lists the EMG source, baseline and threshold.
-
-Values are ADC counts of the filtered, rectified envelope (not microvolts or force). Timing uses the EMG team's estimated serial
-clock mapping; monitor, webcam and analogue delays are not physically calibrated.
-
-## Workload measurement
-
-- PupilSense reads pupil size ~20×/s from the webcam.
-- Live level: smoothed pupil (1.5 s) compared with the baseline **for the same screen**
-  (the Remember and Find screens differ in brightness).
-  Δ = smoothed pupil − baseline for that screen. **MEDIUM** when Δ ≥ max(2 × SD, 0.10 mm); **HIGH** when Δ ≥ max(3 × SD, 0.20 mm);
-  otherwise LOW. SD = baseline SD (never below 0.05 mm); the mm minimums stop a very steady baseline from making the thresholds tiny. All five numbers can be changed in Pupil ▾
-  (the panel shows the resulting thresholds in mm) and are saved in the Excel *Levels and settings* sheet.
-- Shows **PAUSED** when the reading can't be trusted:
-  just stood up (EMG confirm → 4 s after the stand-up), face lost / blinking,
-  light changed > 15 %, or sitting closer/farther than at baseline (face height > 15 %).
-
-## Adaptive difficulty (after each confirmed answer, using the Find-phase workload)
-
-| Result | Change |
-|---|---|
-| Wrong answer | down 1 level |
-| Correct + HIGH | down 1 level |
-| Correct + LOW | up 1 level (after 1 game; change in Pupil ▾ → Raise after) |
-| Correct + MEDIUM | stay |
-| Correct, no reliable reading | stay |
-
-| Level | Buses to remember | Shown for | Blank delay | Other buses | Destination |
-|---|---|---|---|---|---|
-| 1 Look-alikes (start) | 1 | 2.5 s | 1.0 s | half look-alikes | – |
-| 2 Look-alikes, fast | 1 | 1.8 s | 2.5 s | all look-alikes | – |
-| 3 Number + destination | 1 | 2.2 s | 2.5 s | all look-alikes | yes (same-number and same-destination decoys) |
-| 4 Two buses | **2** | 4.5 s | 2.0 s | pair frames, one bus wrong in each decoy | yes |
-| 5 Two buses, fast | **2** | 3.2 s | 3.5 s | pair frames, one bus wrong in each decoy | yes |
-| 6 Three buses | **3** | 6.0 s | 2.5 s | three buses per frame, one bus wrong in each decoy | yes |
-
-**Two- and three-bus levels (4–6):** the player remembers two buses (three at level 6), each with number + destination. The Find screen shows wide frames,
-each holding **two buses**; the player selects the **one frame** showing exactly that pair (single look + confirm).
-Decoy frames get one bus wrong: wrong destination, swapped destinations, or a look-alike number.
-
-Every level uses the same grid screen, so screen brightness does not change with difficulty.
-
----
-
-## Researcher panel (Pupil ▾ at the top)
-
-Calibrate again · Light check · Export CSV · show/hide level to participant · gaze selection on/off ·
-gaze dot · mouse-as-gaze (testing) · dwell time · lock brightness · distance check % · smoothing ·
-readings/s · adaptive on/off · raise-after count · manual level
-
-**Excel summary** — downloaded automatically when the session ends (and saved in `pupilsense\exports\`),
-or any time with *Export Excel*. Enter the participant ID on the first calibration screen.
-Sheets: *Summary* (session info, accuracy, search time, levels reached, workload counts, by-set and by-level tables, two charts),
-*Pupil diameter* (baselines ± SD; per game: Remember and Find mean, Δ vs baseline, % change, min/max, left/right eye, valid readings, blinks; chart per game and chart of every reading), *Trials* (one row per game), *Pupil samples* (every reading), *Levels and settings*.
-
-**Export CSV** saves three raw files:
-- `pupilsense_trials_*.csv` — one row per trial (target, selection, correct, search time, pupil per phase, level, level change and reason)
-- `pupilsense_samples_*.csv` — every pupil reading with phase, gaze, light and face size
-- `pupilsense_meta_*.json` — calibration accuracy, baseline, light check, settings
-
----
+| 2×2 grid instead of 3×3, wide frames | webcam gaze is least accurate near corners; bigger targets |
+| Change selection (`inputs.clearGazeTarget()`) | a wrongly locked bus could not be changed |
+| Difficulty settings (timing, look-alikes, destinations, 2–3 buses per frame) | adaptive difficulty |
+| Bus identity by position (`route@position`) | several buses can show the same number |
+| 2 sets × 5 games | shorter sessions for older players |
 
 ## Known limitations
 
-- **Validate the pupil signal first.** Run *Light check* (white vs black screen); the pupil must read clearly larger on black. If it fails, workload levels are not meaningful on that setup.
-- WebGazer accuracy is typically 100–200 px; recalibrate if selections drift.
-- Lighting matters: light the face from the front; avoid bright light behind the player.
-- Pupil responses are smaller and slower in older adults; validate per participant before adaptive use.
-- The sit-to-stand is still simulated in the game prototype (6 s timer) until the movement processor is connected.
-
-## Requests for the game
-
-- A 3–5 s seated "Get ready" screen before each memory cue (per-trial pupil baseline; lets the pupil settle after standing)
-- Build in: 2×2 (or 3×2) layout, change-selection, `setDifficulty()` / `getDifficulty()`, a `difficulty_changed` event, level stored per attempt
-- Keep screen brightness identical across levels; no bright flashes for feedback
+- Check the pupil signal first with *Light check* (white vs black screen): the pupil must read clearly larger on
+  black, otherwise workload levels are not meaningful on that setup.
+- WebGazer error is typically 100–200 px; recalibrate if selections drift. Light the face from the front.
+- Pupil responses are smaller in older adults; validate per participant before relying on adaptive changes.
+- The sit-to-stand is still a timer in the game; EMG does not detect standing.
