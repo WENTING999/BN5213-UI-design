@@ -33,37 +33,42 @@
     distTol: 0.15,                 // pause if face size differs from baseline by more than this (0.15 = 15%)
     distCheck: true,                  // live level: smoothing time constant in seconds (lower = faster, noisier)
     settleS: 4,                    // seconds excluded after a sit-to-stand
-    t1: 0.33, t2: 0.66,            // LOW->MEDIUM, MEDIUM->HIGH on the index
+    t1: 0.33, t2: 0.66,            // index positions of the two thresholds (gauge only)
+    medSD: 2, medMin: 0.10,        // MEDIUM from pupil >= baseline + max(2 SD, 0.10 mm)
+    highSD: 3, highMin: 0.20,      // HIGH   from pupil >= baseline + max(3 SD, 0.20 mm)
+    sdMin: 0.05,                   // baseline SD is never taken as smaller than this
     baseS: FAST ? 6 : 10,          // seconds per baseline screen
     checkS: FAST ? 4 : 12,         // seconds per colour in the light check
     calSettleMs: 900, calRecordMs: 1500, calHz: 10,   // gaze calibration per dot
     valSettleMs: 900, valRecordMs: 1200,              // gaze validation per dot
-    dwellMs: 3000, dwellGraceMs: 350, dwellPad: 40,   // gaze selection (look 3 s to select)
+    dwellMs: 2000, dwellGraceMs: 350, dwellPad: 40,   // gaze selection (look 2 s to select)
     pageBg: getComputedStyle(document.documentElement).getPropertyValue('--page').trim() || '#F4F1E9',
     gridImage: '/game/previews/game.png',
   };
-  // Bus-grid layout: fixed 3x2 (6 buses), moved in from the screen corners where webcam gaze is least accurate.
+  // Bus-grid layout, moved in from the screen corners where webcam gaze is least accurate.
   // Needs pupil_server.py's app.js patch to change the card count from the original 9.
-  const GRID_KEY = '3x2';
-  const GRID = { cols: 3, rows: 2, cards: 6 };
+  // ?grid=2x2 (default) or ?grid=3x2
+  const GRIDS = { '2x2': { cols: 2, rows: 2, cards: 4 }, '3x2': { cols: 3, rows: 2, cards: 6 } };
+  const GRID_KEY = GRIDS[new URLSearchParams(location.search).get('grid')] ? new URLSearchParams(location.search).get('grid') : '2x2';
+  const GRID = GRIDS[GRID_KEY];
   window.PupilSenseGrid = { cards: GRID.cards, layout: GRID_KEY };
 
   // ---- Difficulty levels (same 3x2 screen and brightness on every level; only timing/look-alikes change)
   const LEVELS = [
     null,
-    { memoryMs: 4000, delayMs: 0,    similarity: 'low',  destination: false, duplicates: 0, label: 'Very easy' },
-    { memoryMs: 3200, delayMs: 1000, similarity: 'low',  destination: false, duplicates: 0, label: 'Easy' },
-    { memoryMs: 2700, delayMs: 1500, similarity: 'mid',  destination: false, duplicates: 0, label: 'Medium' },   // ~ original game timing
-    { memoryMs: 2000, delayMs: 2500, similarity: 'high', destination: false, duplicates: 0, label: 'Hard' },
-    { memoryMs: 3000, delayMs: 1500, similarity: 'mid',  destination: true, duplicates: 1, label: 'Number + destination' },
-    { memoryMs: 2200, delayMs: 3000, similarity: 'high', destination: true, duplicates: 2, label: 'Number + destination, hard' },
+    { memoryMs: 2500, delayMs: 1000, similarity: 'mid',  destination: false, duplicates: 0, twoBus: false, label: 'Look-alikes' },
+    { memoryMs: 1800, delayMs: 2500, similarity: 'high', destination: false, duplicates: 0, twoBus: false, label: 'Look-alikes, fast' },
+    { memoryMs: 2200, delayMs: 2500, similarity: 'high', destination: true,  duplicates: 1, twoBus: false, label: 'Number + destination' },
+    { memoryMs: 4500, delayMs: 2000, similarity: 'high', destination: true,  duplicates: 0, twoBus: true,  label: 'Two buses' },
+    { memoryMs: 3200, delayMs: 3500, similarity: 'high', destination: true,  duplicates: 0, twoBus: true,  label: 'Two buses, fast' },
+    { memoryMs: 6000, delayMs: 2500, similarity: 'high', destination: true,  duplicates: 0, twoBus: true,  buses: 3, label: 'Three buses' },
   ];
   window.PupilSenseDestinations = ['Jurong East', 'Woodlands', 'Tampines', 'Bedok', 'Yishun', 'Clementi', 'Punggol', 'Bishan', 'Toa Payoh', 'Pasir Ris', 'Sengkang', 'Bukit Batok'];
-  const DIFF = { level: 2, adaptive: true, upAfter: 2, streak: 0 };
+  const DIFF = { level: 1, adaptive: true, upAfter: 1, streak: 0, medAfter: 2, medStreak: 0, shiftOn: false, shifts: [] };
   function applyDifficulty() {
     const L = LEVELS[DIFF.level], f = new URLSearchParams(location.search).get('fast') === '1' ? 0.3 : 1;
     window.PupilSenseDifficulty = { level: DIFF.level, memoryMs: Math.round(L.memoryMs * f), delayMs: Math.round(L.delayMs * f),
-                                    similarity: L.similarity, destination: !!L.destination, duplicates: L.duplicates || 0 };
+                                    similarity: L.similarity, destination: !!L.destination, duplicates: L.duplicates || 0, twoBus: !!L.twoBus, buses: L.twoBus ? (L.buses || 2) : 1 };
     const el = document.getElementById('ps-diff'); if (el) el.textContent = `Lv ${DIFF.level}`;
     const sel = document.getElementById('ps-lvl'); if (sel) sel.value = String(DIFF.level);
   }
@@ -150,13 +155,51 @@
   .route-dest{color:#F7C66B;font:800 clamp(10px,1.45svh,14px)/1 Inter,"Segoe UI",Arial,sans-serif;letter-spacing:.02em;text-transform:uppercase;white-space:nowrap;margin-top:2px}
   #ps-memdest{color:#28362F;font:800 clamp(30px,4.5svh,52px)/1.1 Inter,"Segoe UI",Arial,sans-serif;letter-spacing:-.02em;margin-top:-10px;text-align:center;transition:opacity 300ms ease}
   #ps-memdest.fade-out{opacity:0}
+  #ps-memtwo{display:flex;gap:clamp(40px,10vw,160px);justify-content:center;align-items:flex-start;transition:opacity 300ms ease}
+  #ps-memtwo.fade-out{opacity:0}
+  #ps-memtwo .b{text-align:center}
+  #ps-memtwo .n{color:#E99A2E;font:900 clamp(72px,11svh,120px)/.95 "Arial Black",Inter,Arial,sans-serif;letter-spacing:.015em}
+  #ps-memtwo .d{color:#28362F;font:800 clamp(26px,4svh,44px)/1.1 Inter,"Segoe UI",Arial,sans-serif;margin-top:8px}
+  body.ps-pairs .game-screen .bus-grid{width:min(1560px,94vw) !important}
+  body.ps-pairs .game-screen .bus-card{width:calc(var(--bus-card-h) * 2.05) !important;padding:10px 14px !important}
+  body.ps-three .game-screen .bus-grid{width:min(1720px,97vw) !important}
+  body.ps-three .game-screen .bus-card{width:min(calc(var(--bus-card-h) * 3), 47.5vw) !important;padding:8px 10px !important}
+  body.ps-three .bus-art.ps-pair{gap:8px}
+  #ps-memtwo.three{gap:clamp(30px,6vw,110px)}
+  .bus-art.ps-pair{display:flex !important;gap:14px;aspect-ratio:auto !important;width:100%;height:100%;align-items:center}
+  .bus-art.ps-pair>.bus-art{flex:1;min-width:0}
+  #ps-final{max-width:1180px;margin:0 auto;padding:28px 28px 48px;color:#28362F;font-family:Inter,"Segoe UI",Arial,sans-serif}
+  #ps-final .eyebrow{font-size:12px;letter-spacing:.14em;font-weight:800;color:#267B53;margin:0}
+  #ps-final h1{font-size:44px;margin:6px 0 20px}
+  #ps-final h2{font-size:20px;margin:0 0 6px}
+  .ps-fcards{display:grid;grid-template-columns:2fr 1fr;gap:18px;margin-bottom:18px}
+  .ps-fcard{background:#fff;border:1px solid #DDE2DB;border-radius:18px;padding:22px 26px;display:flex;flex-direction:column;gap:4px}
+  .ps-fcard span{font-size:14px;font-weight:700;color:#5D6B62;text-transform:uppercase;letter-spacing:.08em}
+  .ps-fcard strong{font-size:64px;line-height:1;color:#1D6041;font-weight:900}
+  .ps-fscore strong{color:#E99A2E;font-size:84px}
+  .ps-fcard em{font-style:normal;font-size:22px;font-weight:700}
+  .ps-fcard small{font-size:16px;color:#5D6B62}
+  .ps-fpanel{background:#fff;border:1px solid #DDE2DB;border-radius:18px;padding:22px 26px;margin-bottom:18px}
+  .ps-fnote{font-size:14px;color:#5D6B62;margin:0 0 12px;line-height:1.5}
+  #ps-final .ps-ftable{width:100%;border-collapse:collapse;font-size:18px !important}
+  #ps-final .ps-ftable th{text-align:left;font-size:13px !important;color:#5D6B62;font-weight:700;padding:8px 10px;border-bottom:2px solid #DDE2DB;letter-spacing:.06em}
+  #ps-final .ps-ftable td{padding:13px 10px;border-bottom:1px solid #EEF0EC;font-size:18px !important;color:#28362F}
+  #ps-final .ps-ftable td b{font-size:18px !important}
+  .ps-fbar{display:inline-block;width:200px;height:14px;background:#F1F3EF;border-radius:6px;margin-right:10px;vertical-align:middle;overflow:hidden}
+  .ps-fbar i{display:block;height:100%;border-radius:6px}
+  .ps-flink{background:none;border:0;color:#267B53;font:inherit;font-weight:700;text-decoration:underline;cursor:pointer}
   #ps-dwell{position:fixed;z-index:8900;height:10px;border-radius:6px;background:#267B53;display:none;pointer-events:none}
   body.ps-hidden-level #ps-level,body.ps-hidden-level #ps-meta,body.ps-hidden-level #ps-diff{visibility:hidden}`;
   document.head.insertAdjacentHTML('beforeend', `<style>${css}</style>`);
   if (GRID_KEY !== '3x3') {
-    const gw = GRID.cols === 3 ? 'min(1240px, 78vw)' : 'min(860px, 58vw)';
+    // 2x2: every level uses the same big, wide frames (one bus centred, or two buses side by side)
+    const wide = GRID.cols === 2;
+    const gw = wide ? 'min(1560px, 94vw)' : 'min(1240px, 78vw)';
+    const cw = wide ? 'calc(var(--bus-card-h)*2.05)' : 'calc(var(--bus-card-h)*.96)';
     document.head.insertAdjacentHTML('beforeend', `<style id="ps-grid-css">
-      :root{--bus-card-h:min(31svh,calc((100svh - 300px)/2)) !important;--bus-card-w:calc(var(--bus-card-h)*.96) !important;--bus-row-gap:clamp(36px,6svh,72px) !important}
+      :root{--bus-card-h:min(31svh,calc((100svh - 300px)/2)) !important;--bus-card-w:${cw} !important;--bus-row-gap:clamp(36px,6svh,72px) !important}
+      ${wide ? `.game-screen .bus-card,.ps-fake .bus-card{width:var(--bus-card-w) !important;padding:10px 14px !important}
+      .game-screen .bus-card .bus-art:not(.ps-pair):not(.ps-pair>.bus-art){height:100%;width:auto !important;max-width:100%;margin:0 auto}` : ''}
       .game-screen .bus-grid,.ps-fake .bus-grid{width:${gw} !important;margin:clamp(10px,3svh,40px) auto 0 !important;
         grid-template-columns:repeat(${GRID.cols},1fr) !important;justify-items:center}
     </style>`);
@@ -165,11 +208,15 @@
   <div id="ps-bar" role="status" aria-live="polite">
     <span class="dot" id="ps-sdot" title="PupilSense connection"></span>
     <span id="ps-level">—</span>
-    <span id="ps-diff" title="Current difficulty level" style="font-weight:800;color:#425248;background:#EDF0EB;border-radius:99px;padding:5px 10px">Lv 2</span>
+    <span id="ps-diff" title="Current difficulty level" style="font-weight:800;color:#425248;background:#EDF0EB;border-radius:99px;padding:5px 10px">Lv 1</span>
     <span id="ps-meta">Calibration starts after the safety check</span>
+    <span id="ps-emgchip" title="EMG muscle sensor" style="font-weight:800;font-size:12px;border-radius:99px;padding:5px 10px;background:#EDF0EB;color:#78847B">EMG off</span>
     <button class="ps-btn" id="ps-toggle" aria-expanded="false">Pupil ▾</button>
   </div>
   <div id="ps-panel" aria-label="PupilSense controls">
+    <div class="row"><label>Participant <input id="ps-pid" placeholder="P01" style="width:90px;border:1px solid #D7DED7;border-radius:6px;padding:4px 6px"></label>
+      <button class="ps-btn" id="ps-xlsx">Export Excel</button></div>
+    <div class="res" id="ps-r-xlsx"></div>
     <div class="row"><button class="ps-btn" id="ps-recal">Calibrate again</button><button class="ps-btn" id="ps-check">Light check</button>
       <button class="ps-btn" id="ps-export">Export CSV</button></div>
     <div class="res" id="ps-r-gaze"></div><div class="res" id="ps-r-base"></div><div class="res" id="ps-r-check"></div><div class="res" id="ps-r-cam"></div>
@@ -182,19 +229,32 @@
       <label><input type="checkbox" id="ps-gdot"> Show gaze dot</label>
       <label title="For testing without eye tracking: the mouse pointer acts as the gaze"><input type="checkbox" id="ps-mgaze"> Mouse as gaze (test)</label></div>
     <div class="row"><label><input type="checkbox" id="ps-adapt" checked> Adaptive difficulty</label>
-      <label>Raise after <input type="number" id="ps-upafter" value="2" min="1" max="10" style="width:44px"> LOW + correct trials</label>
+      <label>Raise after <input type="number" id="ps-upafter" value="${DIFF.upAfter}" min="1" max="10" style="width:44px"> LOW + correct</label>
+      <label title="MEDIUM this many times in a row (answers correct) = resting pupil has drifted: re-anchor the baseline to recent trials and go up a level"><input type="checkbox" id="ps-shift"> Re-anchor after <input type="number" id="ps-medafter" value="2" min="1" max="10" style="width:44px"> MEDIUM + correct</label>
       <label>Level <select id="ps-lvl">${LEVELS.slice(1).map((L, i) => `<option value="${i + 1}">${i + 1} · ${L.label}</option>`).join('')}</select></label></div>
-    <div class="res" id="ps-r-diff" style="color:#78847B">Up one level after LOW workload + correct answers; down one after a wrong answer or HIGH workload.</div>
+    <div class="res" id="ps-r-diff" style="color:#78847B">Starts at level 1. Up after LOW + correct; down after a wrong answer or HIGH; MEDIUM + correct stays.</div>
     <div class="row"><label>Dwell <input type="number" id="ps-dwellms" value="${CFG.dwellMs}" min="400" max="4000" step="100" style="width:64px"> ms</label>
       <label title="Pause the level if you sit closer/farther than at baseline"><input type="checkbox" id="ps-dist" checked> Distance check ±<input type="number" id="ps-disttol" value="${Math.round(CFG.distTol * 100)}" min="3" max="50" style="width:44px">%</label>
       <label title="Live level smoothing: lower reacts faster but is noisier">Smoothing <input type="number" id="ps-smooth" value="${CFG.smoothS}" min="0.2" max="10" step="0.1" style="width:52px"> s</label>
       <label>Readings/s <input type="number" id="ps-fps" value="${CFG.fps}" min="2" max="30" style="width:48px"></label>
       <label>Exclude after stand-up <input type="number" id="ps-settle" value="${CFG.settleS}" min="0" max="15" style="width:48px"> s</label></div>
+    <div class="row"><label title="MEDIUM when the pupil is this far above the seated baseline (the larger of the two)">MEDIUM ≥ <input type="number" id="ps-medsd" value="${CFG.medSD}" min="0.5" max="10" step="0.5" style="width:46px"> SD and ≥ <input type="number" id="ps-medmin" value="${CFG.medMin}" min="0" max="2" step="0.05" style="width:54px"> mm</label>
+      <label title="HIGH when the pupil is this far above the seated baseline (the larger of the two)">HIGH ≥ <input type="number" id="ps-highsd" value="${CFG.highSD}" min="1" max="15" step="0.5" style="width:46px"> SD and ≥ <input type="number" id="ps-highmin" value="${CFG.highMin}" min="0" max="3" step="0.05" style="width:54px"> mm</label>
+      <label title="Baseline SD is never taken as smaller than this">Min SD <input type="number" id="ps-sdmin" value="${CFG.sdMin}" min="0" max="1" step="0.01" style="width:54px"> mm</label></div>
+    <div class="res" id="ps-r-thr" style="color:#78847B"></div>
+    <h4 style="margin:12px 0 4px">EMG muscle sensor (confirms the selection)</h4>
+    <div class="row"><button class="ps-btn" id="ps-emg-serial">Connect Arduino</button><button class="ps-btn" id="ps-emg-sim">Simulation</button>
+      <button class="ps-btn" id="ps-emg-cal">Relaxed baseline (5 s)</button><button class="ps-btn" id="ps-emg-off">Disconnect</button>
+      <label title="When on, a muscle activation confirms the bus you are looking at (mouse click still works)"><input type="checkbox" id="ps-emg-use" checked> Confirm with EMG</label></div>
+    <div class="row" style="align-items:center"><div id="ps-emg-meter" style="position:relative;flex:1;min-width:220px;height:14px;background:#EDF0EB;border-radius:7px;overflow:hidden">
+      <i id="ps-emg-fill" style="position:absolute;left:0;top:0;bottom:0;width:0;background:#7FA88F"></i><b id="ps-emg-thr" style="position:absolute;top:-2px;bottom:-2px;width:3px;background:#C2412D;display:none"></b></div>
+      <span id="ps-emg-val" style="font-size:12px;color:#425248;min-width:170px">—</span></div>
+    <div class="res" id="ps-r-emg" style="color:#78847B">Not connected. Upload firmware/BN5213_EMG_filtered (raw EMG on A0) to the Arduino Uno, then Connect Arduino (Chrome/Edge). (Simulation button = researcher test only; hold M to activate.)</div>
     <div class="res" style="color:#78847B">Observation only — difficulty is not changed. Each game phase is compared with its own seated baseline.</div>
   </div>
   <div id="ps-calib" role="dialog" aria-modal="true" aria-labelledby="ps-c-title">
     <div class="card">
-      <div class="steps"><span id="ps-st1">1 Camera</span><span id="ps-st2">2 Eye tracking</span><span id="ps-st3">3 Pupil baseline</span></div>
+      <div class="steps"><span id="ps-st1">1 Camera</span><span id="ps-st2">2 Eye tracking</span><span id="ps-st3">3 Pupil baseline</span><span id="ps-st4">4 Muscle sensor</span></div>
       <div class="kicker" id="ps-c-kicker">CALIBRATION</div>
       <h1 id="ps-c-title">Let’s set up the camera.</h1>
       <p id="ps-c-text"></p>
@@ -222,10 +282,20 @@
   $('ps-dist').onchange = e => { CFG.distCheck = e.target.checked; };
   $('ps-disttol').oninput = e => { CFG.distTol = Math.min(0.5, Math.max(0.03, (+e.target.value || 15) / 100)); };
   $('ps-adapt').onchange = e => { DIFF.adaptive = e.target.checked; DIFF.streak = 0; };
-  $('ps-upafter').oninput = e => { DIFF.upAfter = Math.max(1, +e.target.value || 2); };
+  $('ps-upafter').oninput = e => { DIFF.upAfter = Math.max(1, +e.target.value || 1); };
+  $('ps-shift').onchange = e => { DIFF.shiftOn = e.target.checked; DIFF.medStreak = 0; };
+  $('ps-medafter').oninput = e => { DIFF.medAfter = Math.max(1, +e.target.value || 2); };
   $('ps-lvl').onchange = e => { DIFF.level = +e.target.value; DIFF.streak = 0; applyDifficulty();
     $('ps-r-diff').textContent = `Level set to ${DIFF.level} (${LEVELS[DIFF.level].label}) by researcher — applies from the next trial.`; };
   applyDifficulty();
+  function thrText() {
+    const f = b => { const t = thresholdsFor(b); return `MEDIUM ≥ +${t.med.toFixed(2)} mm, HIGH ≥ +${t.high.toFixed(2)} mm`; };
+    $('ps-r-thr').textContent = baseline ? `Now: Remember ${f(baseline.memory)} · Find ${f(baseline.search)} (above each screen's baseline)`
+                                          : 'Thresholds in mm appear once the pupil baseline is recorded.';
+  }
+  [['ps-medsd', 'medSD'], ['ps-medmin', 'medMin'], ['ps-highsd', 'highSD'], ['ps-highmin', 'highMin'], ['ps-sdmin', 'sdMin']].forEach(([id, k]) =>
+    $(id).oninput = e => { const v = +e.target.value; if (isFinite(v) && v >= 0) CFG[k] = v; thrText(); });
+  setInterval(thrText, 2000); setTimeout(thrText, 0);
   $('ps-smooth').oninput = e => { CFG.smoothS = Math.min(10, Math.max(0.2, +e.target.value || CFG.smoothS)); };
   $('ps-fps').oninput = e => { CFG.fps = Math.min(30, Math.max(2, +e.target.value || CFG.fps)); };
   $('ps-settle').oninput = e => { CFG.settleS = Math.max(0, +e.target.value || 0); };
@@ -310,6 +380,7 @@
   }
 
   let exposureLocked = false;
+  const session = { participant: '', start: null, end: null };
   const frameLum = (sec = 1.5) => mean(samples.filter(x => x.t > now() - sec && x.lum != null).map(x => x.lum));
   async function lockExposure(track) {
     // Lock camera brightness (exposure + white balance) at its current setting, when YOU choose.
@@ -360,6 +431,113 @@
     if (gazeSelect && !calibrating) updateDwell(t);
   }
 
+  // ------------------------------------------------------------------ EMG ----
+  // Muscle-activation confirmation using the EMG team's code (BN5213-final-EMG, served by pupil_server.py at /emg/).
+  // Detector: 20 ms envelope, threshold = relaxed baseline mean + max(3 SD, 10 ADC), 30 ms onset, 300 ms refractory.
+  // Rule: an activation confirms only if its onset is AFTER the gaze lock and the eyes are still on the locked bus.
+  const EMG = { ctl: null, source: 'off', baseOk: false, active: false, adc: null, env: null, thr: null, rows: [], events: [],
+                use: true, warmTimer: null, keepT: 0, viaEmg: false, lastRej: '', filter: null };
+  async function emgLoad() {
+    if (EMG.ctl) return EMG.ctl;
+    let mod;
+    try { mod = await import('/emg/lib/emg-controller.mjs'); }
+    catch (e) { throw new Error('EMG code not found. Clone BN5213-final-EMG next to pupil_server.py or start the server with --emg-dir <folder>.'); }
+    const ctl = EMG.ctl = new mod.EmgController();
+    ctl.on('sample', d => {
+      const r = d.results[0], t = now();
+      EMG.adc = d.row.adc0; EMG.env = r.filtered ?? d.row.filtered0; EMG.thr = d.row.threshold0; EMG.active = !!r.active;
+      if (t - EMG.keepT >= 0.05) {   // keep 20 readings/s for the Excel file
+        EMG.keepT = t;
+        EMG.rows.push({ t, iso: new Date().toISOString(), phase, set: attempt?.set ?? '', rep: attempt?.rep ?? '', adc: EMG.adc, env: EMG.env, thr: EMG.thr, active: EMG.active });
+        if (EMG.rows.length > 120000) EMG.rows.shift();
+      }
+    });
+    ctl.on('baseline_start', () => { EMG.baseOk = false; emgStatus('Relaxed baseline: keep the muscle relaxed for 5 s…'); });
+    ctl.on('baseline_ready', () => { EMG.baseOk = true; const b = ctl.processors[0].baseline;
+      emgStatus(`Ready — relaxed ${b.mean.toFixed(0)} ± ${b.sd.toFixed(1)} ADC, activation above ${ctl.processors[0].threshold.toFixed(0)} ADC. ${EMG.filter ? 'Arduino filter: ' + EMG.filter : 'No filter reported (original firmware?)'}`); });
+    ctl.on('baseline_failed', e => { EMG.baseOk = false; emgStatus('Baseline failed (' + (e.reason || 'signal') + '). Relax the muscle and press Relaxed baseline again.', true); });
+    ctl.on('activation', emgActivation);
+    ctl.on('release', () => { clearTimeout(EMG.warmTimer); emgLog('release'); });
+    ctl.on('closed', () => { EMG.source = 'off'; EMG.baseOk = false; emgStatus('Disconnected.', true); });
+    ctl.on('error', e => emgStatus('EMG error: ' + (e.message || e), true));
+    return ctl;
+  }
+  function emgReady() { return !!EMG.ctl && EMG.ctl.connected && EMG.baseOk && EMG.ctl.latest && performance.now() - EMG.ctl.latest.row.received_perf_ms < 1000; }
+  function emgStatus(text, err) { const el = $('ps-r-emg'); if (el) { el.textContent = text; el.style.color = err ? '#C2412D' : '#425248'; } }
+  function emgLog(type, extra = {}) {
+    EMG.events.push({ t: now(), iso: new Date().toISOString(), type, phase, set: attempt?.set ?? '', rep: attempt?.rep ?? '', ...extra });
+  }
+  async function emgConnect(kind) {
+    const ctl = await emgLoad();
+    emgStatus(kind === 'sim' ? 'Starting simulation…' : 'Choose the Arduino port in the browser window…');
+    if (kind === 'sim') await ctl.connectSimulation(); else await ctl.connectSerial();
+    EMG.source = kind === 'sim' ? 'simulation' : 'serial';
+    for (let i = 0; i < 100 && !ctl.latest; i++) await new Promise(r => setTimeout(r, 100));   // UNO resets when the port opens
+    if (!ctl.latest) throw new Error('No samples from the Arduino. Check the firmware (BN5213_EMG_filtered.ino) and the USB cable.');
+    EMG.source = ctl.source;
+    // ask the board to describe its filters (BN5213_EMG_filtered.ino answers 'I' with a '#filter,...' line)
+    EMG.filter = null;
+    if (ctl.transport?.kind === 'serial') {
+      ctl.transport.on('message', m => { if (m.type === 'comment' && m.text.startsWith('#filter')) EMG.filter = m.text.slice(8).replace(/,/g, ', '); });
+      await ctl.transport.send('I').catch(() => {});
+      for (let i = 0; i < 10 && !EMG.filter; i++) await new Promise(r => setTimeout(r, 100));
+    } else EMG.filter = 'simulation (no filter)';
+    return emgBaseline();
+  }
+  function emgBaseline() {
+    const ctl = EMG.ctl; if (!ctl?.latest) return Promise.reject(new Error('Connect the EMG first.'));
+    return new Promise((resolve, reject) => {
+      let u1 = null, u2 = null;
+      const off = () => { u1?.(); u2?.(); };
+      u1 = ctl.on('baseline_ready', () => { off(); resolve(true); });
+      u2 = ctl.on('baseline_failed', e => { off(); reject(new Error('EMG baseline failed (' + (e?.reason || 'signal') + '). Relax the muscle and try again.')); });
+      ctl.calibrate(5000);
+    });
+  }
+  function emgActivation(ev) {
+    const onset = (Number.isFinite(ev.perfMs) ? ev.perfMs : performance.now()) / 1000;
+    emgLog('activation', { onset_s: onset });
+    if (!EMG.use || !emgReady() || ev.channel !== 0) return;
+    if (screen === 'warmup' && warmupLocked) {   // practice: hold for 0.5 s
+      clearTimeout(EMG.warmTimer);
+      EMG.warmTimer = setTimeout(() => { if (EMG.ctl?.latest?.results[0].active) { emgLog('confirm_warmup'); CYB.inputs.warmupFootPressConfirmed(); } }, 500);
+      return;
+    }
+    if (phase !== 'confirm' || !trial || trial.lockAt == null) { emgLog('ignored', { reason: 'no bus selected' }); return; }
+    if (onset < trial.lockAt - 0.05) { emgLog('rejected', { reason: 'activation started before the bus was selected' }); return; }
+    const locked = document.querySelector('#busGrid .bus-card.gaze-locked');
+    if (gazeSelect && gaze && now() - gaze.t < 0.6 && locked && !hit(gaze.x, gaze.y, [locked])) {
+      EMG.lastRej = 'looking at another bus'; emgLog('rejected', { reason: 'eyes not on the selected bus' }); return;
+    }
+    trial.emgOnsetAfterLock = onset - trial.lockAt;
+    EMG.viaEmg = true; emgLog('confirm', { onset_after_lock_s: trial.emgOnsetAfterLock });
+    CYB.inputs.emgConfirmed();
+  }
+  setInterval(() => {   // live meter + chip
+    const chip = $('ps-emgchip'); if (!chip) return;
+    const on = emgReady();
+    chip.textContent = !EMG.ctl?.connected ? 'EMG off' : !EMG.baseOk ? 'EMG baseline…' : EMG.active ? 'EMG ACTIVE' : 'EMG ready';
+    chip.style.background = !on ? '#EDF0EB' : EMG.active ? '#E99A2E' : '#D8EDDF';
+    chip.style.color = !on ? '#78847B' : EMG.active ? '#fff' : '#1D6041';
+    if (!EMG.ctl?.latest) return;
+    const fill = $('ps-emg-fill'), mark = $('ps-emg-thr'), max = 1023;
+    if (fill) { fill.style.width = `${Math.min(100, (EMG.env ?? 0) / max * 100)}%`; fill.style.background = EMG.active ? '#E99A2E' : '#7FA88F'; }
+    if (mark && EMG.thr != null) { mark.style.display = 'block'; mark.style.left = `${EMG.thr / max * 100}%`; }
+    const v = $('ps-emg-val'); if (v) v.textContent = `${EMG.source} · ${Math.round(EMG.env ?? 0)} / ${EMG.thr != null ? Math.round(EMG.thr) : '–'} ADC · ${EMG.active ? 'ACTIVE' : 'relaxed'} · missed ${EMG.ctl.latest.row.missed_slots ?? 0}`;
+    v && (v.title = EMG.filter ? 'Arduino filter: ' + EMG.filter : 'No filter reported by the Arduino');
+    const note = document.getElementById('warmupNote');
+    if (note && on && EMG.use && screen === 'warmup' && warmupLocked && !/complete/i.test(note.textContent))
+      note.textContent = 'Now tighten the muscle with the sensor and hold it for half a second.';
+  }, 100);
+  const emgTry = fn => async () => { try { await fn(); } catch (e) { emgStatus(e.message || String(e), true); } };
+  $('ps-emg-serial').onclick = emgTry(() => emgConnect('serial'));
+  $('ps-emg-sim').onclick = emgTry(() => emgConnect('sim'));
+  $('ps-emg-cal').onclick = emgTry(() => emgBaseline());
+  $('ps-emg-off').onclick = emgTry(async () => { await EMG.ctl?.disconnect(); EMG.baseOk = false; });
+  $('ps-emg-use').onchange = e => { EMG.use = e.target.checked; };
+  window.addEventListener('keydown', e => { if (e.code === 'KeyM' && !/INPUT|SELECT|TEXTAREA/.test(e.target.tagName)) EMG.ctl?.setHold(true); });
+  window.addEventListener('keyup', e => { if (e.code === 'KeyM') EMG.ctl?.setHold(false); });
+
   // ---------------------------------------------------------- dwell select ----
   function dwellTargets() {
     if (screen === 'warmup' && !warmupLocked) return [document.getElementById('warmupBus')].filter(Boolean);
@@ -404,43 +582,70 @@
     const t = now(), d = ev.detail || {};
     switch (ev.type) {
       case 'screen_changed': screen = d.screen; if (d.screen !== 'game') phase = d.screen; resetDwell(); break;
-      case 'session_started': warmupLocked = false; DIFF.streak = 0; openCalibration(); break;
+      case 'session_started': warmupLocked = false; DIFF.streak = 0; DIFF.medStreak = 0; DIFF.shifts = []; openCalibration(); break;
       case 'warmup_gaze_locked': warmupLocked = true; resetDwell(); break;
       case 'trial_memory_shown':
         phase = 'memory'; attempt = { attemptId: d.attemptId, set: d.set, rep: d.rep };
-        showMemoryGrid(d.targetPos, d.targetRoute, d.targetDest);
-        trial = { attemptId: d.attemptId, set: d.set, rep: d.rep, target: d.targetRoute, targetPos: d.targetPos ?? '', targetDest: d.targetDest ?? '', destMode: d.targetDest != null, memLocation: false, memStart: t,
+        showMemoryGrid(d.targetPos, d.targetRoute, d.targetDest, d.two);
+        document.body.classList.toggle('ps-pairs', !!d.two);
+        document.body.classList.toggle('ps-three', !!(d.two && d.two.routes.length >= 3));
+        trial = { attemptId: d.attemptId, set: d.set, rep: d.rep, target: d.targetRoute, targetPos: d.targetPos ?? '', targetDest: d.targetDest ?? '', destMode: d.targetDest != null, two: d.two || null, memLocation: false, memStart: t,
                   sinceStandUp: settleUntil ? +(t - (settleUntil - CFG.settleS)).toFixed(2) : '' };
         break;
-      case 'trial_search_started': phase = 'search'; hideMemoryGrid(); if (trial) trial.searchStart = t; break;
-      case 'gaze_target_locked': phase = 'confirm'; resetDwell(); if (trial) { trial.lockAt = t; trial.searchTimeMs = d.searchTimeMs; trial.selected = d.route; trial.selectedPos = d.pos ?? ''; trial.selectedDest = d.dest ?? ''; trial.lockSource = d.source; } break;
-      case 'gaze_target_cleared': phase = 'search'; resetDwell(); if (trial) { trial.reselections = (trial.reselections || 0) + 1; trial.lockAt = null; } break;
+      case 'trial_search_started':
+        phase = 'search'; hideMemoryGrid(); if (trial) trial.searchStart = t;
+        if (trial?.two) { const title = document.getElementById('gameTitle'); if (title) title.textContent = trial.two.routes.length >= 3 ? 'Find all 3 buses!' : 'Find the pair!'; }
+        break;
+      case 'gaze_target_locked':
+        phase = 'confirm'; resetDwell();
+        if (trial && d.second) { trial.lockAt = t; trial.selected2 = d.route; trial.selectedDest2 = d.dest ?? ''; trial.searchTimeMs2 = d.searchTimeMs; }
+        else if (trial) { trial.lockAt = t; trial.searchTimeMs = d.searchTimeMs; trial.selected = d.route; trial.selectedPos = d.pos ?? ''; trial.selectedDest = d.dest ?? ''; trial.lockSource = d.source; }
+        break;
+      case 'gaze_target_cleared':
+        resetDwell();
+        if (d.second) { if (trial) { trial.reselections = (trial.reselections || 0) + 1; trial.selected2 = ''; trial.selectedDest2 = ''; } }
+        else { phase = 'search'; if (trial) { trial.reselections = (trial.reselections || 0) + 1; trial.lockAt = null; } }
+        break;
       case 'emg_confirmed':
         phase = 'movement';
+        if (trial) { trial.confirmBy = EMG.viaEmg ? 'EMG' : 'mouse'; EMG.viaEmg = false; }
         if (trial) { trial.correct = d.isCorrect; trial.emgAt = t; finaliseTrial(trial); adapt(trial); trials.push(trial); trial = null; }
         break;
       case 'rep_completed': phase = 'settle'; settleUntil = t + CFG.settleS; break;
       case 'rest_started': phase = 'rest'; attempt = null; break;
-      case 'session_completed': phase = 'done'; attempt = null; break;
-      case 'new_session_ready': phase = 'setup'; attempt = null; trials = []; samples = []; break;
+      case 'session_completed': phase = 'done'; attempt = null; session.end = new Date(); exportExcel(true); setTimeout(showFinal, 50); break;
+      case 'new_session_ready': phase = 'setup'; attempt = null; trials = []; samples = []; hideFinal(); break;
     }
   });
 
   // ----------------------------------------- destination-mode memory screen ----
   let memLocation = false;   // (kept for the pupil-baseline choice; false in destination mode: screen stays plain)
-  function showMemoryGrid(pos, route, dest) {
+  function showMemoryGrid(pos, route, dest, two) {
     hideMemoryGrid();
-    if (!dest) return;
+    if (!dest && !two) return;
     const panel = document.getElementById('memoryPanel'), num = document.getElementById('memoryNumber');
     if (!panel || !num) return;
-    num.insertAdjacentHTML('afterend', `<p id="ps-memdest">${dest}</p>`);
-    const obs = new MutationObserver(() => { document.getElementById('ps-memdest')?.classList.toggle('fade-out', num.classList.contains('fade-out')); });
+    if (two) {   // two buses: both numbers with their destinations, side by side
+      num.style.display = 'none';
+      num.insertAdjacentHTML('afterend', `<div id="ps-memtwo" class="${two.routes.length >= 3 ? 'three' : ''}">${two.routes.map((r, i) =>
+        `<div class="b"><div class="n">${r}</div><div class="d">${two.dests[i]}</div></div>`).join('')}</div>`);
+      const title = document.getElementById('gameTitle'); if (title) title.textContent = two.routes.length >= 3 ? 'Remember all 3 buses!' : 'Remember both buses!';
+    } else {
+      num.insertAdjacentHTML('afterend', `<p id="ps-memdest">${dest}</p>`);
+    }
+    const obs = new MutationObserver(() => {
+      const f = num.classList.contains('fade-out');
+      document.getElementById('ps-memdest')?.classList.toggle('fade-out', f);
+      document.getElementById('ps-memtwo')?.classList.toggle('fade-out', f);
+    });
     obs.observe(num, { attributes: true, attributeFilter: ['class'] });
     panel._psObs = obs;
   }
   function hideMemoryGrid() {
     const panel = document.getElementById('memoryPanel');
     document.getElementById('ps-memdest')?.remove();
+    document.getElementById('ps-memtwo')?.remove();
+    const num = document.getElementById('memoryNumber'); if (num) num.style.display = '';
     panel?._psObs?.disconnect();
   }
 
@@ -456,14 +661,32 @@
     if (!DIFF.adaptive) { tr.level_change = 0; tr.level_reason = 'adaptive off'; return; }
     const before = DIFF.level, lvl = tr.search_level;
     let reason;
-    if (!tr.correct) { DIFF.level = Math.max(1, DIFF.level - 1); DIFF.streak = 0; reason = 'wrong answer'; }
-    else if (lvl === 'high') { DIFF.level = Math.max(1, DIFF.level - 1); DIFF.streak = 0; reason = 'correct but HIGH workload'; }
+    if (!tr.correct) { DIFF.level = Math.max(1, DIFF.level - 1); DIFF.streak = 0; DIFF.medStreak = 0; reason = 'wrong answer'; }
+    else if (lvl === 'high') { DIFF.level = Math.max(1, DIFF.level - 1); DIFF.streak = 0; DIFF.medStreak = 0; reason = 'correct but HIGH workload'; }
     else if (lvl === 'low') {
-      DIFF.streak++;
+      DIFF.streak++; DIFF.medStreak = 0;
       if (DIFF.streak >= DIFF.upAfter) { DIFF.level = Math.min(LEVELS.length - 1, DIFF.level + 1); DIFF.streak = 0; reason = `${DIFF.upAfter}× LOW + correct`; }
       else reason = `LOW + correct (${DIFF.streak}/${DIFF.upAfter})`;
     }
-    else if (lvl === 'medium') { DIFF.streak = 0; reason = 'correct, MEDIUM workload — stay'; }
+    else if (lvl === 'medium') {
+      DIFF.streak = 0; DIFF.medStreak++;
+      if (DIFF.shiftOn && DIFF.medStreak >= DIFF.medAfter) {
+        // MEDIUM several times in a row while answering correctly: the player's resting pupil has probably
+        // drifted (fatigue, arousal, light). Re-anchor the baseline to the recent trials and move up.
+        const recent = trials.slice(-(DIFF.medAfter - 1)).concat([tr]).map(x => x.search_pupil).filter(isFinite);
+        const newBase = median(recent), oldBase = baseline.search.pupil;
+        if (isFinite(newBase)) {
+          const dMem = baseline.memory ? newBase - oldBase : 0;
+          baseline.search.pupil = newBase;
+          if (baseline.memory) baseline.memory.pupil += dMem;        // shift the memory-screen baseline by the same amount
+          DIFF.shifts.push({ trial: `${tr.set}-${tr.rep}`, from: +oldBase.toFixed(3), to: +newBase.toFixed(3), at: new Date().toISOString() });
+          tr.baseline_shift = +(newBase - oldBase).toFixed(3);
+          live.ema = null; live.n = 0;                                  // restart live smoothing against the new baseline
+        }
+        DIFF.level = Math.min(LEVELS.length - 1, DIFF.level + 1); DIFF.medStreak = 0;
+        reason = `${DIFF.medAfter}× MEDIUM + correct → baseline re-anchored (${fmt(oldBase)} → ${fmt(newBase)} mm)`;
+      } else reason = `correct, MEDIUM workload — stay (${DIFF.medStreak}/${DIFF.medAfter} to re-anchor)`;
+    }
     else reason = 'correct, no reliable pupil reading — stay';
     tr.level_change = DIFF.level - before; tr.level_reason = reason; tr.level_next = DIFF.level;
     applyDifficulty();
@@ -475,7 +698,7 @@
   let skipRequested = false;
   $('ps-c-skip').onclick = () => { skipRequested = true; };
   function stepMarks(active) {
-    [1, 2, 3].forEach(i => { const el = $('ps-st' + i); el.className = i < active ? 'done' : i === active ? 'on' : ''; });
+    [1, 2, 3, 4].forEach(i => { const el = $('ps-st' + i); el.className = i < active ? 'done' : i === active ? 'on' : ''; });
   }
   function view({ kicker = 'CALIBRATION', title, text = '', result = '', status = '' }) {
     C.kicker.textContent = kicker; C.title.textContent = title; C.text.textContent = text;
@@ -502,7 +725,11 @@
       // 1. camera + positioning
       stepMarks(1);
       view({ title: 'Let’s set up the camera.', text: 'The camera follows your eyes during the game. Nothing is recorded or sent anywhere — it stays on this computer.' });
+      C.result.innerHTML = `<label style="font-size:16px;color:#425248">Participant ID
+        <input id="ps-pid2" value="${$('ps-pid').value}" placeholder="P01" style="margin-left:8px;font-size:16px;width:120px;padding:6px 8px;border:1px solid #D7DED7;border-radius:8px"></label>`;
+      $('ps-pid2').oninput = e => { $('ps-pid').value = e.target.value; };
       await choose([{ label: 'Start camera', value: 1, primary: true }]);
+      session.participant = $('ps-pid').value.trim(); session.start = new Date();
       C.status.textContent = 'Starting the camera… (allow camera access if asked)';
       try { await startTracking(); }
       catch (e) {
@@ -589,13 +816,43 @@
         try {
           baseline = await recordBaseline();
           $('ps-r-base').textContent = baselineText(baseline);
-          view({ kicker: 'ALL SET', title: 'Calibration complete.', text: 'Next, a quick practice with one bus.',
-                 result: `${$('ps-r-gaze').textContent}<br>${baselineText(baseline)}` });
-          if (baseline.memory.validFrac < 0.6 || baseline.search.validFrac < 0.6)
-            C.status.textContent = 'Note: the camera could not see the eyes clearly for part of the baseline. You can redo it from the Pupil menu.';
-          await choose([{ label: 'Start practice', value: 1, primary: true }]);
         } catch { /* cancelled */ }
       }
+
+      // 4. EMG muscle sensor (confirms the selected bus)
+      stepMarks(4);
+      let emgAgain = !emgReady();
+      while (emgAgain) {
+        view({ title: 'Muscle sensor.', text: 'After you pick a bus with your eyes, you confirm it with the muscle sensor. First we measure the muscle while it is relaxed (5 seconds).',
+               result: 'Plug in the Arduino USB cable, then press Connect Arduino and choose its port.' });
+        const pick = EMG.ctl?.connected && EMG.source === 'serial' ? 'serial'     // already connected: just redo the baseline
+          : await choose([{ label: 'Connect Arduino', value: 'serial', primary: true }, { label: 'Skip — confirm by clicking', value: 'skip' }]);
+        if (pick === 'skip') { EMG.use = false; $('ps-emg-use').checked = false; break; }
+        view({ title: 'Relax the muscle.', text: 'Keep still and relaxed for 5 seconds — the baseline is being recorded…' });
+        try {
+          if (EMG.ctl?.connected && EMG.source === 'serial') await emgBaseline(); else await emgConnect(pick);
+          const b = EMG.ctl.processors[0];
+          view({ kicker: 'CHECK THE THRESHOLD', title: 'Baseline recorded.', text: 'Activate the muscle: the bar should pass the red line and turn orange. Relax: it drops below the line and turns green.',
+                 result: `<div style="width:min(460px,80vw);height:22px;margin:6px auto;background:#EDF0EB;border-radius:11px;position:relative;overflow:hidden"><i id="ps-emg-try" style="position:absolute;left:0;top:0;bottom:0;width:0;background:#7FA88F"></i><b style="position:absolute;top:0;bottom:0;width:3px;left:${b.threshold / 1023 * 100}%;background:#C2412D"></b></div>
+                          <span style="font-size:13px;color:#78847B">Relaxed ${b.baseline.mean.toFixed(0)} ± ${b.baseline.sd.toFixed(1)} ADC · activation above ${b.threshold.toFixed(0)} ADC (red line)</span><br>
+                          <span style="font-size:13px;color:${EMG.filter ? '#78847B' : '#C2412D'}">${EMG.filter ? 'Filter on the Arduino: ' + EMG.filter : 'No filter reported — upload BN5213_EMG_filtered.ino for 50 Hz rejection and band-pass'}</span>` });
+          const tryT = setInterval(() => { const f = document.getElementById('ps-emg-try'); if (f) { f.style.width = `${Math.min(100, (EMG.env ?? 0) / 10.23)}%`; f.style.background = EMG.active ? '#E99A2E' : '#7FA88F'; } }, 60);
+          emgAgain = await choose([{ label: 'Threshold OK — continue', value: false, primary: true }, { label: 'Record baseline again', value: true }]);
+          clearInterval(tryT);
+          EMG.use = true; $('ps-emg-use').checked = true;
+        } catch (e) {
+          view({ title: 'The muscle sensor did not start.', text: e.message || String(e) });
+          emgAgain = await choose([{ label: 'Try again', value: true, primary: true }, { label: 'Skip — confirm by clicking', value: false }]);
+          if (!emgAgain) { EMG.use = false; $('ps-emg-use').checked = false; }
+        }
+      }
+
+      view({ kicker: 'ALL SET', title: 'Calibration complete.', text: 'Next, a quick practice with one bus.',
+             result: [$('ps-r-gaze').textContent, baseline ? baselineText(baseline) : 'No pupil baseline (workload levels off).',
+                      emgReady() && EMG.use ? 'Muscle sensor ready — look at a bus, then tighten the muscle to confirm.' : 'Confirm with a mouse click.'].join('<br>') });
+      if (baseline && (baseline.memory.validFrac < 0.6 || baseline.search.validFrac < 0.6))
+        C.status.textContent = 'Note: the camera could not see the eyes clearly for part of the baseline. You can redo it from the Pupil menu.';
+      await choose([{ label: 'Start practice', value: 1, primary: true }]);
     } finally {
       document.body.classList.remove('ps-positioning');
       $('ps-calib').classList.remove('open'); $('ps-dot').style.display = 'none';
@@ -758,9 +1015,117 @@
   function indexFor(p, which) {
     const b = baseline?.[which];
     if (!b || p == null || !isFinite(p)) return NaN;
-    return (p - b.pupil) / (3 * b.sd);
+    const { med, high } = thresholdsFor(b), d = p - b.pupil;
+    // piecewise so that index 0.33 = MEDIUM threshold, 0.66 = HIGH threshold (gauge and levels agree)
+    if (d < med) return CFG.t1 * d / med;
+    if (d < high) return CFG.t1 + (CFG.t2 - CFG.t1) * (d - med) / (high - med);
+    return CFG.t2 + (CFG.t2 - CFG.t1) * (d - high) / (high - med);
+  }
+  function thresholdsFor(b) {   // mm above this screen's baseline
+    const sdv = Math.max(b?.sd || 0, CFG.sdMin);
+    const med = Math.max(CFG.medSD * sdv, CFG.medMin);
+    return { sd: sdv, med, high: Math.max(CFG.highSD * sdv, CFG.highMin, med + 0.01) };
   }
   const levelOf = idx => !isFinite(idx) ? null : idx < CFG.t1 ? 'low' : idx < CFG.t2 ? 'medium' : 'high';
+  // ------------------------------------------------------- final page ----
+  // Replaces the game's end dashboard with: score + pupil dilation through every game, shaded by level.
+  function hideFinal() {
+    document.getElementById('ps-final')?.remove();
+    const m = document.querySelector('#dashboardScreen .dashboard-main'); if (m) m.style.display = '';
+  }
+  function showFinal() {
+    const scr = document.getElementById('dashboardScreen'), main = scr?.querySelector('.dashboard-main');
+    if (!scr || !main) return;
+    hideFinal(); main.style.display = 'none';
+    const T = trials.slice(), n = T.length, nOK = T.filter(t => t.correct).length;
+    const hasBase = !!baseline;
+    const baseFor = ph => !baseline ? null : ph === 'memory' ? baseline.memory.pupil : baseline.search.pupil;
+    // per game: pupil trace (1 s medians of valid readings) during Remember + Find
+    const games = T.map(t => {
+      const t0 = t.memStart, t1 = t.emgAt ?? t.lockAt ?? t0 + 1, bins = new Map();
+      for (const x of samples) {
+        if (x.t < t0 || x.t > t1 || !x.valid || x.postMove || !['memory', 'search', 'confirm'].includes(x.phase)) continue;
+        const b = baseFor(x.phase), v = hasBase ? x.pupil - b : x.pupil, k = Math.floor((x.t - t0) / 1);
+        (bins.get(k) || bins.set(k, []).get(k)).push(v);
+      }
+      const pts = [...bins.entries()].sort((a, b) => a[0] - b[0]).map(([k, v]) => [(k + 0.5) / Math.max(1, t1 - t0), median(v)]);
+      const find = hasBase && isFinite(t.search_pupil) ? t.search_pupil - t.base_search : (isFinite(t.search_pupil) ? t.search_pupil : null);
+      return { t, pts, find, split: t.searchStart ? (t.searchStart - t0) / Math.max(1, t1 - t0) : null };
+    });
+    const unit = hasBase ? 'Δ mm vs baseline' : 'mm';
+    // ---- chart: one slot per game, shaded by difficulty level
+    const W = 1100, H = 330, L = 64, R = 16, TOP = 34, B = 64, cw = (W - L - R) / Math.max(1, n);
+    const vals = games.flatMap(g => g.pts.map(p => p[1])).filter(isFinite).concat(hasBase ? [0] : []);
+    let lo = vals.length ? Math.min(...vals) : 0, hi = vals.length ? Math.max(...vals) : 1;
+    const pad = Math.max(0.05, (hi - lo) * 0.12); lo -= pad; hi += pad;
+    const Y = v => TOP + (H - TOP - B) * (1 - (v - lo) / (hi - lo));
+    const shade = ['#ffffff', '#EEF6F0', '#DDEEE2', '#FBEFD9', '#F7E0C0', '#F3CFAE', '#EDB9A0'];
+    let svg = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Pupil dilation in every game" style="width:100%;height:auto;display:block">`;
+    // level bands (consecutive games at the same level)
+    for (let i = 0; i < n;) {
+      let j = i; const lv = T[i].level_played; while (j + 1 < n && T[j + 1].level_played === lv) j++;
+      const x0 = L + i * cw, x1 = L + (j + 1) * cw;
+      svg += `<rect x="${x0}" y="${TOP}" width="${x1 - x0}" height="${H - TOP - B}" fill="${shade[lv] || '#eee'}"/>`;
+      svg += `<text x="${(x0 + x1) / 2}" y="${TOP - 10}" text-anchor="middle" font-size="15" font-weight="700" fill="#1D6041">Level ${lv}</text>`;
+      i = j + 1;
+    }
+    // y grid
+    for (let k = 0; k <= 4; k++) {
+      const v = lo + (hi - lo) * k / 4, y = Y(v);
+      svg += `<line x1="${L}" x2="${W - R}" y1="${y}" y2="${y}" stroke="#00000014"/><text x="${L - 8}" y="${y + 4}" text-anchor="end" font-size="12" fill="#5D6B62">${(hasBase && v > 0 ? '+' : '') + v.toFixed(2)}</text>`;
+    }
+    if (hasBase) svg += `<line x1="${L}" x2="${W - R}" y1="${Y(0)}" y2="${Y(0)}" stroke="#28362F" stroke-dasharray="6 5" stroke-width="1.5"/><text x="${W - R - 4}" y="${Y(0) - 6}" text-anchor="end" font-size="12" fill="#28362F">baseline</text>`;
+    svg += `<text transform="translate(16 ${(TOP + H - B) / 2}) rotate(-90)" text-anchor="middle" font-size="13" fill="#5D6B62">Pupil ${unit}</text>`;
+    // traces + game labels
+    games.forEach((g, i) => {
+      const x0 = L + i * cw;
+      if (i) svg += `<line x1="${x0}" x2="${x0}" y1="${TOP}" y2="${H - B}" stroke="#ffffffcc" stroke-width="2"/>`;
+      if (g.split != null) svg += `<line x1="${x0 + g.split * cw}" x2="${x0 + g.split * cw}" y1="${TOP}" y2="${H - B}" stroke="#00000018" stroke-dasharray="2 4"/>`;
+      const d = g.pts.map((p, k) => `${k ? 'L' : 'M'}${(x0 + 4 + p[0] * (cw - 8)).toFixed(1)},${Y(p[1]).toFixed(1)}`).join('');
+      if (d) svg += `<path d="${d}" fill="none" stroke="#267B53" stroke-width="2.5" stroke-linejoin="round"/>` +
+        g.pts.map(p => `<circle cx="${(x0 + 4 + p[0] * (cw - 8)).toFixed(1)}" cy="${Y(p[1]).toFixed(1)}" r="3" fill="#267B53"/>`).join('');
+      else svg += `<text x="${x0 + cw / 2}" y="${H - B - 10}" text-anchor="middle" font-size="12" fill="#8A968E">no reading</text>`;
+      const ok = g.t.correct;
+      svg += `<text x="${x0 + cw / 2}" y="${H - B + 22}" text-anchor="middle" font-size="13" fill="#5D6B62">${g.t.set}·${g.t.rep}</text>`;
+      svg += `<text x="${x0 + cw / 2}" y="${H - B + 46}" text-anchor="middle" font-size="20" font-weight="800" fill="${ok ? '#267B53' : '#C2412D'}">${ok ? '✓' : '✗'}</text>`;
+    });
+    svg += `</svg>`;
+    // ---- per level summary
+    const lvls = [...new Set(T.map(t => t.level_played))].sort((a, b) => a - b);
+    const rows = lvls.map(lv => {
+      const g = games.filter(x => x.t.level_played === lv), f = g.map(x => x.find).filter(v => v != null && isFinite(v));
+      return { lv, name: LEVELS[lv]?.label || '', n: g.length, ok: g.filter(x => x.t.correct).length, find: f.length ? mean(f) : null };
+    });
+    const fmax = Math.max(0.05, ...rows.map(r => Math.abs(r.find ?? 0)));
+    const bar = v => v == null ? '<span style="color:#8A968E">no reading</span>' : hasBase
+      ? `<span class="ps-fbar"><i style="width:${Math.min(100, Math.abs(v) / fmax * 100)}%;background:${v >= 0 ? '#E99A2E' : '#7FA88F'}"></i></span><b>${v >= 0 ? '+' : ''}${v.toFixed(2)} mm</b>`
+      : `<b>${v.toFixed(2)} mm</b>`;
+    const sets = [...new Set(T.map(t => t.set))].map(sv => { const g = T.filter(t => t.set === sv); return `Set ${sv}: ${g.filter(t => t.correct).length} / ${g.length}`; }).join(' · ');
+    const best = n ? Math.max(...T.map(t => t.level_played)) : '–';
+    const el = document.createElement('main'); el.id = 'ps-final';
+    el.innerHTML = `
+      <p class="eyebrow">SESSION COMPLETE${$('ps-pid')?.value ? ' · ' + $('ps-pid').value.toUpperCase() : ''}</p>
+      <h1>Well done!</h1>
+      <section class="ps-fcards">
+        <div class="ps-fcard ps-fscore"><span>Score</span><strong>${nOK} / ${n}</strong><em>${n ? Math.round(nOK / n * 100) : 0}% correct</em><small>${sets}</small></div>
+        <div class="ps-fcard"><span>Highest level</span><strong>${best}</strong><em>${LEVELS[best]?.label || ''}</em></div>
+      </section>
+      <section class="ps-fpanel">
+        <h2>Pupil dilation in every game</h2>
+        <p class="ps-fnote">${hasBase ? 'Above the dashed line = pupil larger than when relaxed (more mental effort).' : 'No relaxed baseline was recorded, so pupil size is shown in mm.'}
+          Each slot is one game (set·game): Remember, then Find after the dotted line. Shading = difficulty level.</p>
+        ${n ? svg : '<p>No games recorded.</p>'}
+      </section>
+      <section class="ps-fpanel">
+        <h2>By level</h2>
+        <table class="ps-ftable"><thead><tr><th>Level</th><th>Games</th><th>Correct</th><th>Pupil while searching (${hasBase ? 'vs baseline' : 'mean'})</th></tr></thead><tbody>
+        ${rows.map(r => `<tr><td><b>${r.lv}</b> ${r.name}</td><td>${r.n}</td><td>${r.ok} / ${r.n}</td><td>${bar(r.find)}</td></tr>`).join('')}
+        </tbody></table>
+      </section>
+      <p class="ps-fnote" style="text-align:center">The full results were saved to Excel. <button class="ps-flink" type="button" id="ps-frec">Show training record</button></p>`;
+    main.after(el);
+    el.querySelector('#ps-frec').onclick = () => { el.remove(); main.style.display = ''; };
+  }
   function finaliseTrial(tr) {
     const m = windowPupil(tr.memStart, tr.searchStart ?? tr.memStart, true);
     const mAll = windowPupil(tr.memStart, tr.searchStart ?? tr.memStart, false);
@@ -774,7 +1139,27 @@
     tr.mem_level = levelOf(tr.mem_index); tr.search_level = levelOf(tr.search_index);
   }
 
-  setInterval(tick, 200);
+  setInterval(() => { tick(); sendState(); }, 200);
+  // live state for the monitor page (http://localhost:8000/) - relayed by the server, nothing is stored there
+  function sendState() {
+    if (ws?.readyState !== 1) return;
+    const t = now(), last = samples[samples.length - 1];
+    const which = phase === 'memory' ? 'memory' : (phase === 'search' || phase === 'confirm') ? 'search' : null;
+    const b = baseline && which ? baseline[which] : null;
+    const p = which && live.phase === which ? live.ema : null;
+    const L = LEVELS[DIFF.level] || {};
+    try {
+      ws.send(JSON.stringify({ type: 'state', streaming, calibrating, phase, phaseName: phaseName(), screen,
+        level: $('ps-level').className || null, label: $('ps-level').textContent, meta: $('ps-meta').textContent, warn: $('ps-warn').textContent,
+        pupil: p, raw: last && t - last.t < 1 ? last.pupil : null, valid: last ? !!last.valid : false, blink: last ? !!last.blink : false,
+        baseline: b ? b.pupil : null, baselineSD: b ? b.sd : null, index: isFinite(indexFor(p, which)) ? indexFor(p, which) : null,
+        t1: CFG.t1, t2: CFG.t2, set: attempt?.set ?? null, game: attempt?.rep ?? null,
+        difficulty: DIFF.level, difficultyName: L.label || '', adaptive: DIFF.adaptive, games: trials.length,
+        correct: trials.filter(x => x.correct).length, lastTrial: trials.length ? { correct: trials.at(-1).correct, level: trials.at(-1).search_level } : null,
+        participant: ($('ps-pid')?.value || '').trim(),
+        emg: EMG.ctl?.connected ? { source: EMG.source, ready: emgReady(), active: EMG.active, env: EMG.env, thr: EMG.thr, use: EMG.use } : null }));
+    } catch {}
+  }
   function tick() {
     if (!streaming || calibrating) { if (calibrating) { setLevel(null, 'CALIBRATING'); $('ps-meta').textContent = 'Calibration in progress'; } return; }
     const t = now();
@@ -846,22 +1231,67 @@
     const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([text], { type })); a.download = name;
     document.body.appendChild(a); a.click(); a.remove();
   }
-  $('ps-export').onclick = () => {
-    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
-    const tr = trials.map(t => ({ attemptId: t.attemptId, set: t.set, rep: t.rep, target: t.target, target_dest: t.targetDest, selected: t.selected, selected_dest: t.selectedDest, destination_mode: t.destMode, correct: t.correct,
-      level_played: t.level_played ?? '', level_next: t.level_next ?? '', level_change: t.level_change ?? '', level_reason: t.level_reason ?? '',
+  function exportRows() {
+    const two = (a, b) => (b ? `${a ?? ''} + ${b}` : (a ?? ''));
+    const tr = trials.map(t => ({ attemptId: t.attemptId, set: t.set, rep: t.rep,
+      target: t.two ? t.two.routes.join(' + ') : t.target, target_dest: t.two ? t.two.dests.join(' + ') : t.targetDest,
+      selected: String(t.selected ?? '').split('|').join(' + '), selected_dest: String(t.selectedDest ?? '').split('|').join(' + '), buses_to_remember: t.two ? t.two.routes.length : 1,
+      destination_mode: t.destMode, correct: t.correct,
+      level_played: t.level_played ?? '', level_next: t.level_next ?? '', level_change: t.level_change ?? '', level_reason: t.level_reason ?? '', baseline_shift_mm: t.baseline_shift ?? '',
       lock_source: t.lockSource, reselections: t.reselections ?? 0, search_time_ms: t.searchTimeMs, s_since_stand_up_at_memory: t.sinceStandUp,
       mem_pupil_mm: fmt(t.mem_pupil, 3), mem_pupil_incl_postmove_mm: fmt(t.mem_pupil_incl_postmove, 3), mem_valid: fmt(t.mem_valid), mem_postmove_frac: fmt(t.mem_postmove_frac),
       search_pupil_mm: fmt(t.search_pupil, 3), search_valid: fmt(t.search_valid), search_postmove_frac: fmt(t.search_postmove_frac),
       base_memory_mm: fmt(t.base_memory, 3), base_search_mm: fmt(t.base_search, 3),
+      confirm_by: t.confirmBy ?? '', emg_onset_after_lock_s: t.emgOnsetAfterLock != null ? fmt(t.emgOnsetAfterLock, 3) : '',
       mem_index: fmt(t.mem_index, 3), mem_level: t.mem_level ?? '', search_index: fmt(t.search_index, 3), search_level: t.search_level ?? '' }));
     const sm = samples.map(s => ({ time: s.iso, phase: s.phase, screen: s.screen, attemptId: s.attemptId, set: s.set, rep: s.rep,
       pupil_mm: fmt(s.pupil, 3), left_mm: fmt(s.left, 3), right_mm: fmt(s.right, 3), blink: s.blink, face: s.face, valid: s.valid,
       post_movement: s.postMove, gaze_x: s.gx, gaze_y: s.gy, light: fmt(s.lum, 1), face_w: fmt(s.faceW, 3), face_h: fmt(s.faceS, 3) }));
+    return { tr, sm };
+  }
+  async function exportExcel(auto = false) {
+    const { tr, sm } = exportRows();
+    if (!tr.length) { $('ps-r-xlsx').textContent = 'No games recorded yet.'; return; }
+    const pad = n => String(n).padStart(2, '0'), t = d => d ? `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}` : '';
+    const st = CYB.getState();
+    const payload = {
+      trials: tr, samples: sm, levels: LEVELS.slice(1),
+      emg: EMG.rows.map(r => ({ time: r.iso, phase: r.phase, set: r.set, rep: r.rep, adc: r.adc, envelope: fmt(r.env, 1), threshold: r.thr != null ? fmt(r.thr, 1) : '', active: r.active })),
+      emg_events: EMG.events.map(e => ({ time: e.iso, type: e.type, phase: e.phase, set: e.set, rep: e.rep, detail: e.reason || (e.onset_after_lock_s != null ? `onset ${fmt(e.onset_after_lock_s, 3)} s after selection` : '') })),
+      meta: {
+        participant: $('ps-pid').value.trim() || session.participant, date: (session.start || new Date()).toISOString().slice(0, 10),
+        start: t(session.start), end: t(session.end || new Date()), sets: st.totalSets, reps: st.repsPerSet, grid: GRID_KEY,
+        gazeQuality: gazeCal?.skipped ? 'not calibrated' : (gazeCal?.quality || ''), gazeMedianPx: gazeCal?.median,
+        baseMemory: baseline?.memory?.pupil, baseSearch: baseline?.search?.pupil, baseMemorySD: baseline?.memory?.sd, baseSearchSD: baseline?.search?.sd,
+        emgSource: EMG.ctl?.connected ? EMG.source : 'not used', emgBaseline: EMG.ctl?.processors?.[0]?.baseline ? `${EMG.ctl.processors[0].baseline.mean.toFixed(1)} ± ${EMG.ctl.processors[0].baseline.sd.toFixed(1)} ADC` : '',
+        emgThreshold: EMG.ctl?.processors?.[0]?.threshold ?? null,
+        emgFilter: EMG.ctl?.connected ? (EMG.filter || 'none reported (original firmware)') : '',
+        emgMissed: EMG.ctl?.latest?.row?.missed_slots ?? null,
+        baseMemoryValid: baseline?.memory?.validFrac, baseSearchValid: baseline?.search?.validFrac, lightDiff: check?.diff, exposureLocked,
+        settings: { calibration: CAL_MODE, dwellMs: CFG.dwellMs, smoothingS: CFG.smoothS, readingsPerS: CFG.fps,
+                    distanceCheck: CFG.distCheck ? `±${Math.round(CFG.distTol * 100)}%` : 'off', settleAfterStandS: CFG.settleS,
+                    adaptive: DIFF.adaptive, raiseAfterLow: DIFF.upAfter, thresholds: `MEDIUM >= max(${CFG.medSD} SD, ${CFG.medMin} mm); HIGH >= max(${CFG.highSD} SD, ${CFG.highMin} mm); min SD ${CFG.sdMin} mm`,
+                    thresholdsMm: baseline ? `Remember +${thresholdsFor(baseline.memory).med.toFixed(2)} / +${thresholdsFor(baseline.memory).high.toFixed(2)} mm; Find +${thresholdsFor(baseline.search).med.toFixed(2)} / +${thresholdsFor(baseline.search).high.toFixed(2)} mm` : 'no baseline' },
+      },
+    };
+    $('ps-r-xlsx').textContent = 'Building Excel summary…';
+    try {
+      const res = await fetch('/export', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || res.statusText);
+      const name = (res.headers.get('content-disposition') || '').match(/filename="?([^";]+)/)?.[1] || 'CatchYourBus_summary.xlsx';
+      const a = document.createElement('a'); a.href = URL.createObjectURL(await res.blob()); a.download = name;
+      document.body.appendChild(a); a.click(); a.remove();
+      $('ps-r-xlsx').textContent = `${auto ? 'Session finished — ' : ''}Excel summary downloaded (${name}); a copy is in the server's exports folder.`;
+    } catch (e) { $('ps-r-xlsx').textContent = 'Excel export failed: ' + e.message; }
+  }
+  $('ps-xlsx').onclick = () => exportExcel(false);
+  $('ps-export').onclick = () => {
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const { tr, sm } = exportRows();
     if (tr.length) download(`pupilsense_trials_${stamp}.csv`, csv(tr));
     if (sm.length) download(`pupilsense_samples_${stamp}.csv`, csv(sm));
     download(`pupilsense_meta_${stamp}.json`, JSON.stringify({ gazeCalibration: gazeCal, baseline, lightCheck: check, settings: CFG,
-      gridLayout: GRID_KEY, difficultyLevels: LEVELS.slice(1), adaptive: { ...DIFF }, calibrationMode: CAL_MODE, exposureLocked, webgazerVersion: WG_VERSION, exportedAt: new Date().toISOString() }, null, 2), 'application/json');
+      gridLayout: GRID_KEY, difficultyLevels: LEVELS.slice(1), adaptive: { ...DIFF }, baselineShifts: DIFF.shifts, calibrationMode: CAL_MODE, exposureLocked, webgazerVersion: WG_VERSION, exportedAt: new Date().toISOString() }, null, 2), 'application/json');
   };
 
   window.PupilSenseOverlay = { getSamples: () => samples, getTrials: () => trials, getBaseline: () => baseline,

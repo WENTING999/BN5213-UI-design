@@ -2,6 +2,8 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Pupil Workload Monitor (PupilSense)</title>
 <style>
@@ -56,6 +58,22 @@
   #task .count{position:absolute;top:18px;right:24px;font-size:16px}
   #task .sub{position:absolute;bottom:22px;font-size:14px;opacity:.7}
   .note{font-size:12px;color:var(--muted);line-height:1.5;margin-top:10px}
+  /* live view of the running game */
+  #game{display:none;grid-template-columns:minmax(360px,520px) 1fr;gap:18px;padding:18px 22px 0}
+  body.gamelive #game{display:grid}
+  body.gamelive.hide-standalone main{display:none}
+  #gcam{position:relative;border-radius:10px;overflow:hidden;background:#000;aspect-ratio:4/3}
+  #gcam img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;transform:scaleX(-1)}
+  #gcam .tag{position:absolute;left:10px;top:10px;background:#e5484d;color:#fff;font-size:11px;font-weight:700;padding:3px 8px;border-radius:5px;letter-spacing:.06em}
+  #gcam .tag.stale{background:#555}
+  #gcam .lvl{position:absolute;right:10px;top:10px;font-size:12px;font-weight:700;padding:4px 10px;border-radius:6px;background:#262b36;color:var(--muted)}
+  #gcam .lvl.low{background:var(--low);color:#05210f}#gcam .lvl.medium{background:var(--med);color:#2b1d00}#gcam .lvl.high{background:var(--high);color:#fff}
+  .kv{display:grid;grid-template-columns:auto 1fr;gap:6px 14px;font-size:14px;margin-top:14px}
+  .kv span:nth-child(odd){color:var(--muted)}
+  .kv b{font-weight:600}
+  canvas#gchart{width:100%;height:230px;display:block;margin-top:12px}
+  #gwarn{color:var(--med);font-size:13px;min-height:18px;margin-top:10px}
+  @media (max-width:900px){#game{grid-template-columns:1fr}}
   @media (max-width:900px){main{grid-template-columns:1fr}.grid2{grid-template-columns:1fr}}
 </style>
 </head>
@@ -63,8 +81,52 @@
 <header>
   <h1>Pupil Workload Monitor</h1>
   <span style="font-size:12px;color:var(--muted)">engine: PupilSense / EyeDentify (CC BY-NC 4.0)</span>
+  <span id="gchip" style="font-size:12px;padding:4px 10px;border-radius:6px;background:#262b36;color:var(--muted)">Live game view: connecting…</span>
   <span class="status" id="status">Connecting to pupil server…</span>
 </header>
+
+<section id="game">
+  <div class="panel">
+    <h2>Live camera — Catch Your Bus</h2>
+    <div id="gcam"><video id="gvid" autoplay playsinline muted style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;transform:scaleX(-1);display:none"></video><img id="gimg" alt=""><span id="gmsg" style="position:absolute;inset:0;display:none;align-items:center;justify-content:center;text-align:center;padding:20px;color:#e8eaf0;font-size:14px;background:#000a"></span><span class="tag" id="gtag">● LIVE</span><span class="lvl" id="glvl">—</span></div>
+    <div class="eyes">
+      <figure><img id="geyeL" alt=""><figcaption>left eye · <span id="gmmL">–</span></figcaption></figure>
+      <figure><img id="geyeR" alt=""><figcaption>right eye · <span id="gmmR">–</span></figcaption></figure>
+    </div>
+    <div class="row" style="margin-top:10px;justify-content:space-between">
+      <span class="note" id="gfoot" style="margin:0">Camera view: connecting…</span>
+      <button class="ghost" id="gcamBtn">Use relayed frames</button></div>
+  </div>
+  <div style="display:flex;flex-direction:column;gap:18px">
+    <div class="panel">
+      <h2>Workload in the game</h2>
+      <div class="levelcard">
+        <div class="badge" id="gbadge">—</div>
+        <div class="gauge">
+          <div class="bar" style="background:linear-gradient(90deg,var(--low) 0 33%,var(--med) 33% 66%,var(--high) 66% 100%)"><div class="needle" id="gneedle"></div></div>
+          <div class="val" id="gval">waiting for the game…</div>
+        </div>
+      </div>
+      <div id="gwarn"></div>
+      <div class="kv">
+        <span>Participant</span><b id="gpid">–</b>
+        <span>Screen</span><b id="gphase">–</b>
+        <span>Set · game</span><b id="gset">–</b>
+        <span>Difficulty</span><b id="gdiff">–</b>
+        <span>Pupil (smoothed)</span><b id="gpup">–</b>
+        <span>Baseline for this screen</span><b id="gbase">–</b>
+        <span>Games · correct</span><b id="gscore">–</b>
+        <span>EMG</span><b id="gemg">–</b>
+      </div>
+    </div>
+    <div class="panel">
+      <h2>Pupil diameter — last 60 s</h2>
+      <canvas id="gchart"></canvas>
+      <div class="note">Dots: each reading (grey = blink / unusable). Line: smoothed pupil, coloured by workload. Dashed: baseline for the current screen.</div>
+    </div>
+    <div class="row"><button class="ghost" id="gtoggle">Show standalone monitor (own camera tests)</button></div>
+  </div>
+</section>
 
 <main>
   <section class="panel">
@@ -577,6 +639,151 @@ function updateRefDesc() {
 }
 ['cfgTask', 'cfgDigits', 'cfgTrials', 'cfgHoldMem', 'cfgPresent'].forEach(id => $(id).addEventListener('input', updateRefDesc));
 updateRefDesc();
+// ======================================================= live game view ====
+// The game page streams its camera to the server; /watch relays the latest frame, reading and workload state.
+(function gameView() {
+  const g = { pts: [], lastSeen: -1e9 };
+  document.body.classList.add('hide-standalone');
+  $('gtoggle').onclick = () => {
+    const hid = document.body.classList.toggle('hide-standalone');
+    $('gtoggle').textContent = hid ? 'Show standalone monitor (own camera tests)' : 'Hide standalone monitor';
+  };
+  const f2 = v => v == null || !isFinite(v) ? '–' : (+v).toFixed(2);
+  function chip(text, bg) { const c = $('gchip'); c.textContent = text; c.style.background = bg; c.style.color = bg === '#262b36' ? '' : '#0f1115'; }
+  // Camera view: show the webcam directly (smooth, full frame rate; Chrome shares the camera with the game tab).
+  // Fallback: frames relayed by the server (only as fast as the game sends them to the model).
+  let localCam = null, wantLocal = true, sock = null, lastUrl = null;
+  let vidFrameAt = 0, vidStartAt = 0, relayFrameAt = 0;
+  const nowS = () => performance.now() / 1000;
+  function watchVideoFrames() {   // count real frames from the direct camera
+    const v = $('gvid');
+    if (v.requestVideoFrameCallback) { const cb = () => { vidFrameAt = nowS(); if (localCam) v.requestVideoFrameCallback(cb); }; v.requestVideoFrameCallback(cb); }
+    else { let last = -1; const iv = setInterval(() => { if (!localCam) return clearInterval(iv); if (v.currentTime !== last) { last = v.currentTime; vidFrameAt = nowS(); } }, 200); }
+  }
+  async function startLocal() {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' }, audio: false });
+      if (!wantLocal) { stream.getTracks().forEach(t => t.stop()); return; }
+      localCam = stream;
+      stream.getVideoTracks()[0]?.addEventListener('ended', () => { if (localCam === stream) fallback('the camera stopped in this tab'); });
+      $('gvid').srcObject = stream; vidStartAt = nowS(); vidFrameAt = 0;
+      watchVideoFrames();
+      await Promise.race([$('gvid').play().catch(() => {}), new Promise(r => setTimeout(r, 1500))]);
+      if (localCam !== stream) return;            // the watchdog already switched to relayed frames
+      $('gvid').style.display = 'block'; $('gimg').style.display = 'none';
+      $('gfoot').textContent = 'Camera view: direct from the webcam (smooth). Pupil readings and workload come from the game.';
+      $('gcamBtn').textContent = 'Use relayed frames';
+    } catch (e) {
+      localCam = null; wantLocal = false; useRelay('Camera view: relayed from the game (could not open the camera here: ' + e.name + ')');
+    }
+    reconnect();
+  }
+  function fallback(why) { wantLocal = false; useRelay(`Camera view: relayed from the game (${why}). Button below retries the direct camera.`); reconnect(); }
+  setInterval(() => {   // watchdog: frozen/black direct camera -> relayed frames; no frames at all -> say so
+    const t = nowS(), live = document.body.classList.contains('gamelive');
+    if (localCam && t - vidStartAt > 3 && t - Math.max(vidFrameAt, vidStartAt) > 2) fallback('the direct camera showed no new frames');
+    const msg = $('gmsg');
+    const stale = live && !localCam && t - relayFrameAt > 2;
+    msg.style.display = stale ? 'flex' : 'none';
+    if (stale) msg.textContent = 'No camera frames from the game yet. Is the game camera on (calibration started)?';
+  }, 500);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden && localCam) { vidStartAt = nowS(); $('gvid').play().catch(() => {}); } });
+  function stopLocal() { localCam?.getTracks().forEach(t => t.stop()); localCam = null; $('gvid').srcObject = null; }
+  function useRelay(text) {
+    stopLocal(); $('gvid').style.display = 'none'; $('gimg').style.display = 'block';
+    $('gfoot').textContent = text || 'Camera view: relayed from the game (updates as fast as the game sends frames to the model).';
+    $('gcamBtn').textContent = 'Use direct camera (smoother)';
+  }
+  $('gcamBtn').onclick = () => { wantLocal = !wantLocal; if (wantLocal) startLocal(); else { useRelay(); reconnect(); } };
+  function reconnect() { try { sock?.close(); } catch {} }
+  function connectWatch() {
+    const w = new WebSocket(`ws://${location.host}/watch?frames=${localCam ? 0 : 1}`);
+    w.binaryType = 'blob'; sock = w;
+    let opened = false;
+    w.onopen = () => { opened = true; };
+    w.onmessage = ev => {
+      if (typeof ev.data !== 'string') {           // relayed JPEG frame
+        if (localCam) return;
+        const url = URL.createObjectURL(ev.data), img = $('gimg');
+        img.onload = () => { if (lastUrl && lastUrl !== url) URL.revokeObjectURL(lastUrl); lastUrl = url; };
+        img.src = url; relayFrameAt = nowS(); return;
+      }
+      onWatch(JSON.parse(ev.data));
+    };
+    w.onclose = () => {
+      if (sock === w) sock = null;
+      if (!opened) chip('Live game view needs the new pupil_server.py — replace it and restart the server', '#e5484d');
+      setTimeout(connectWatch, opened ? 300 : 2000);
+    };
+  }
+  function onWatch(m) {
+    const t = performance.now() / 1000;
+    if (m.live || m.state) g.lastSeen = t;
+    const active = t - g.lastSeen < 5;
+    document.body.classList.toggle('gamelive', active);
+    if (!active) {
+      chip('Live game view: waiting — start the game at /game/ (camera on)', '#262b36');
+      if (localCam) { stopLocal(); reconnect(); }
+      return;
+    }
+    if (wantLocal && !localCam && !g.starting) { g.starting = true; startLocal().finally(() => { g.starting = false; }); }
+    chip(m.state ? '● Live game view' : 'Game camera live, but the game page has the old overlay — reload it with Ctrl+Shift+R',
+         m.state ? '#2fbf71' : '#f2b134');
+    $('gtag').textContent = m.live ? '● LIVE' : 'camera paused'; $('gtag').className = 'tag' + (m.live ? '' : ' stale');
+    if (m.crops?.left_eye) $('geyeL').src = m.crops.left_eye;
+    if (m.crops?.right_eye) $('geyeR').src = m.crops.right_eye;
+    const r = m.result || {};
+    $('gmmL').textContent = r.blink ? 'blink' : (r.left_mm != null ? f2(r.left_mm) + ' mm' : '–');
+    $('gmmR').textContent = r.blink ? 'blink' : (r.right_mm != null ? f2(r.right_mm) + ' mm' : '–');
+    const s = m.state;
+    if (!s) { $('gval').textContent = 'game page not sending workload yet (reload it with Ctrl+Shift+R)'; return; }
+    const lvl = s.level, label = lvl ? lvl.toUpperCase() : (s.label || '—');
+    $('gbadge').className = 'badge ' + (lvl || 'paused'); $('gbadge').textContent = label;
+    $('glvl').className = 'lvl ' + (lvl || ''); $('glvl').textContent = label;
+    const idx = s.index;
+    $('gneedle').style.left = idx == null ? '0' : `calc(${Math.max(0, Math.min(1, idx)) * 100}% - 2px)`;
+    $('gneedle').style.opacity = idx == null ? .3 : 1;
+    $('gval').textContent = s.meta || '';
+    $('gwarn').textContent = s.warn || '';
+    $('gpid').textContent = s.participant || '–';
+    $('gphase').textContent = s.calibrating ? 'Calibration' : (s.phaseName || s.phase || '–');
+    $('gset').textContent = s.set ? `${s.set} · ${s.game}` : '–';
+    $('gdiff').textContent = `Lv ${s.difficulty} ${s.difficultyName}${s.adaptive ? ' (adaptive)' : ' (fixed)'}`;
+    $('gpup').textContent = s.pupil != null ? `${f2(s.pupil)} mm` + (s.baseline != null ? `  (Δ ${s.pupil - s.baseline >= 0 ? '+' : ''}${f2(s.pupil - s.baseline)})` : '') : '–';
+    $('gbase').textContent = s.baseline != null ? `${f2(s.baseline)} ± ${f2(s.baselineSD)} mm` : '–';
+    $('gscore').textContent = `${s.games} · ${s.correct}`;
+    $('gemg').textContent = !s.emg ? 'not connected' : `${s.emg.active ? 'ACTIVE' : s.emg.ready ? 'relaxed' : 'baseline…'} · ${Math.round(s.emg.env ?? 0)} / ${s.emg.thr != null ? Math.round(s.emg.thr) : '–'} ADC (${s.emg.source})${s.emg.use ? '' : ' · not confirming'}`;
+    $('gemg').style.color = s.emg?.active ? '#f2b134' : '';
+    if (m.result && m.live) g.pts.push({ t, raw: s.raw, ok: s.valid && !s.blink, ema: s.pupil, base: s.baseline, lvl });
+    g.pts = g.pts.filter(p => p.t > t - 60);
+    drawG(t);
+  }
+  function drawG(t) {
+    const c = $('gchart'), dpr = devicePixelRatio || 1, W = c.clientWidth, H = c.clientHeight;
+    if (c.width !== W * dpr) { c.width = W * dpr; c.height = H * dpr; }
+    const x = c.getContext('2d'); x.setTransform(dpr, 0, 0, dpr, 0, 0); x.clearRect(0, 0, W, H);
+    const vals = g.pts.flatMap(p => [p.raw, p.ema, p.base]).filter(v => v != null && isFinite(v));
+    if (!vals.length) { x.fillStyle = '#9aa1b1'; x.font = '13px system-ui'; x.fillText('no readings yet', 10, 20); return; }
+    let lo = Math.min(...vals) - 0.1, hi = Math.max(...vals) + 0.1;
+    if (hi - lo < 0.6) { const m = (hi + lo) / 2; lo = m - 0.3; hi = m + 0.3; }
+    const L = 40, X = tt => L + (W - L - 6) * (1 - (t - tt) / 60), Y = v => 6 + (H - 26) * (1 - (v - lo) / (hi - lo));
+    x.strokeStyle = '#2a2f3a'; x.fillStyle = '#9aa1b1'; x.font = '11px system-ui'; x.lineWidth = 1;
+    for (let k = 0; k <= 4; k++) { const v = lo + (hi - lo) * k / 4, y = Y(v); x.beginPath(); x.moveTo(L, y); x.lineTo(W, y); x.stroke(); x.fillText(v.toFixed(2), 2, y + 4); }
+    x.fillText('−60 s', L, H - 4); x.fillText('now', W - 26, H - 4);
+    for (const p of g.pts) if (p.raw != null && isFinite(p.raw)) { x.fillStyle = p.ok ? '#5b8def88' : '#55555588'; x.fillRect(X(p.t) - 1.5, Y(p.raw) - 1.5, 3, 3); }
+    x.setLineDash([5, 4]); x.strokeStyle = '#e8eaf0aa'; x.beginPath(); let on = false;
+    for (const p of g.pts) { if (p.base == null) { on = false; continue; } const X1 = X(p.t), Y1 = Y(p.base); on ? x.lineTo(X1, Y1) : x.moveTo(X1, Y1); on = true; }
+    x.stroke(); x.setLineDash([]);
+    const col = { low: '#2fbf71', medium: '#f2b134', high: '#e5484d' };
+    x.lineWidth = 2.5;
+    for (let i = 1; i < g.pts.length; i++) {
+      const a = g.pts[i - 1], b = g.pts[i];
+      if (a.ema == null || b.ema == null) continue;
+      x.strokeStyle = col[b.lvl] || '#9aa1b1'; x.beginPath(); x.moveTo(X(a.t), Y(a.ema)); x.lineTo(X(b.t), Y(b.ema)); x.stroke();
+    }
+  }
+  connectWatch();
+})();
 </script>
 </body>
 </html>

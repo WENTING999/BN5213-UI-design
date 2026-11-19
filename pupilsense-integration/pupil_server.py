@@ -17,7 +17,7 @@ Resize([32, 64], bicubic, antialias) -> ToTensor (no normalisation).
 
 Model licence: CC BY-NC 4.0 (non-commercial).
 """
-import argparse, base64, io, os, sys, time
+import argparse, asyncio, base64, io, json, os, sys, time
 import numpy as np
 import cv2
 import torch
@@ -159,16 +159,42 @@ class PupilEngine:
 
 
 # ------------------------------------------------------------------ app ----
-def create_app(engine, game_dir=None):
+def find_emg_dir(given=None):
+    """Folder holding the EMG team's browser code (BN5213-final-EMG/web/lib/emg-controller.mjs)."""
+    cands = [given] if given else [os.path.join(ROOT, "BN5213-final-EMG"), os.path.join(os.path.dirname(ROOT), "BN5213-final-EMG"),
+                                   os.path.join(ROOT, "emg"), os.path.join(os.path.dirname(ROOT), "BN5213-final-EMG-main")]
+    for c in cands:
+        if not c:
+            continue
+        for web in (os.path.join(c, "web"), c):
+            if os.path.isfile(os.path.join(web, "lib", "emg-controller.mjs")):
+                return os.path.abspath(web)
+    return None
+
+
+def create_app(engine, game_dir=None, protocol=(2, 5), export_dir=None, emg_web=None):
     app = FastAPI()
 
+    @app.get("/emg/lib/{name}")
+    def emg_lib(name: str):
+        """EMG team's modules (EmgController, envelope detector, Web Serial), served as JavaScript modules."""
+        import re
+        if not emg_web or not re.fullmatch(r"[A-Za-z0-9_-]+\.mjs", name):
+            return JSONResponse({"error": "EMG code not available"}, status_code=404)
+        path = os.path.join(emg_web, "lib", name)
+        if not os.path.isfile(path):
+            return JSONResponse({"error": "not found"}, status_code=404)
+        return FileResponse(path, media_type="application/javascript", headers={"Cache-Control": "no-store"})
+
     @app.get("/")
+    @app.get("/monitor")
     def index():
-        return FileResponse(os.path.join(ROOT, "pupil_workload.html"))
+        return FileResponse(os.path.join(ROOT, "pupil_workload.html"), headers={"Cache-Control": "no-store, no-cache, must-revalidate", "Pragma": "no-cache"})
 
     @app.get("/pupilsense-adapter.js")
     def adapter():
-        return FileResponse(os.path.join(ROOT, "pupilsense-adapter.js"), media_type="application/javascript")
+        return FileResponse(os.path.join(ROOT, "pupilsense-adapter.js"), media_type="application/javascript",
+                            headers={"Cache-Control": "no-store"})
 
     if game_dir:
         # Serve the Catch Your Bus game unchanged, injecting the PupilSense overlay script.
@@ -185,13 +211,18 @@ def create_app(engine, game_dir=None):
         def game_index():
             with open(os.path.join(game_dir, "index.html"), encoding="utf-8") as f:
                 html = f.read()
-            tag = '<script src="/pupilsense-adapter.js"></script>\n'
+            v = int(os.path.getmtime(os.path.join(ROOT, "pupilsense-adapter.js")))   # changes whenever the file changes
+            tag = f'<script src="/pupilsense-adapter.js?v={v}"></script>\n'
             html = html.replace("</body>", tag + "</body>") if "</body>" in html else html + tag
             return HTMLResponse(html, headers={"Cache-Control": "no-store"})
 
         # Patch their app.js in memory (file on disk untouched). Each patch is applied only if its
         # anchor text is found, so an upstream change just disables that feature (with a warning).
         PATCHES = [
+            ("protocol length (sets x games)", [
+                ("const TOTAL_SETS = 3;", f"const TOTAL_SETS = {int(protocol[0])};"),
+                ("const REPS_PER_SET = 10;", f"const REPS_PER_SET = {int(protocol[1])};"),
+            ]),
             ("grid size (window.PupilSenseGrid.cards: 9 = 3x3, 6 = 3x2, 4 = 2x2)", [
                 ("const real = sample(REAL_ROUTES, 7);",
                  "const __n = (window.PupilSenseGrid && window.PupilSenseGrid.cards) || 9;\n"
@@ -299,6 +330,57 @@ def create_app(engine, game_dir=None):
                  "      gazeTarget: (routeNumber) => gazeTarget(routeNumber, 'webgazer'),\n"
                  "      clearGazeTarget: () => clearGazeTarget('webgazer'),"),
             ]),
+            ("two or three buses per frame (window.PupilSenseDifficulty.twoBus, .buses)", [
+                ("    } else { window.__psTargetPos = null; window.__psDest = null; }\n  }\n  function updateTrainingCounter() {",
+                 "    } else { window.__psTargetPos = null; window.__psDest = null; }\n"
+                 "    // two-bus mode: each frame shows TWO buses (number + destination). The player remembers a pair\n"
+                 "    // and selects the ONE frame showing exactly that pair. Decoy frames get one bus wrong.\n"
+                 "    window.__psTwo = null; window.__psPairs = false;\n"
+                 "    if (window.PupilSenseDifficulty && window.PupilSenseDifficulty.twoBus) {\n"
+                 "      const __D = (window.PupilSenseDestinations && window.PupilSenseDestinations.length >= 6) ? window.PupilSenseDestinations\n"
+                 "        : ['Jurong East', 'Woodlands', 'Tampines', 'Bedok', 'Yishun', 'Clementi', 'Punggol', 'Bishan', 'Toa Payoh', 'Pasir Ris'];\n"
+                 "      const __k = Math.max(2, Math.min(3, window.PupilSenseDifficulty.buses || 2));   // buses per frame\n"
+                 "      const nums = sample(REAL_ROUTES, __k), __ds = sample(__D, __k + 2);\n"
+                 "      const dests = __ds.slice(0, __k), spare = __ds.slice(__k);\n"
+                 "      const alike = (t) => { for (let k = 0; k < 60; k++) { const i = Math.floor(Math.random() * t.length);\n"
+                 "        const v = t.slice(0, i) + Math.floor(Math.random() * 10) + t.slice(i + 1);\n"
+                 "        if (v !== t && v[0] !== '0' && !nums.includes(v)) return v; }\n"
+                 "        return sample(REAL_ROUTES.filter((r) => !nums.includes(r)), 1)[0]; };\n"
+                 "      const target = nums.map((n, i) => [n, dests[i]]);\n"
+                 "      const variants = [];\n"
+                 "      for (let i = 0; i < __k; i++) {\n"
+                 "        variants.push(target.map((b, j) => j === i ? [b[0], spare[i % spare.length]] : b));   // bus i: wrong destination\n"
+                 "        variants.push(target.map((b, j) => j === i ? [alike(b[0]), b[1]] : b));              // bus i: look-alike number\n"
+                 "        for (let j = i + 1; j < __k; j++)                                                       // buses i, j: destinations swapped\n"
+                 "          variants.push(target.map((b, q) => q === i ? [b[0], target[j][1]] : q === j ? [b[0], target[i][1]] : b));\n"
+                 "      }\n"
+                 "      const decoys = sample(variants, __n - 1);\n"
+                 "      const frames = sample([target, ...decoys], __n);\n"
+                 "      const tPos = frames.indexOf(target);\n"
+                 "      currentCards = frames.map((f) => f.map((b) => b[0]).join('|'));\n"
+                 "      window.__psDest = frames.map((f) => f.map((b) => b[1]).join('|'));\n"
+                 "      currentTarget = currentCards[tPos]; window.__psTargetPos = tPos; window.__psPairs = true;\n"
+                 "      window.__psTwo = { routes: nums, dests };\n"
+                 "    }\n"
+                 "  }\n  function updateTrainingCounter() {"),
+                ("      art.append(img, display);",
+                 "      art.append(img, display);\n"
+                 "      if (window.__psPairs) {   // two buses side by side in one frame\n"
+                 "        const __nums = route.split('|'), __ds = (window.__psDest ? window.__psDest[__i] : '|').split('|');\n"
+                 "        art.replaceChildren(); art.className = 'bus-art ps-pair';\n"
+                 "        __nums.forEach((__n1, __j) => {\n"
+                 "          const one = document.createElement('span'); one.className = 'bus-art';\n"
+                 "          const im = document.createElement('img'); im.src = 'assets/citaro-front-master.png'; im.alt = ''; im.draggable = false;\n"
+                 "          const dp = document.createElement('span'); dp.className = 'route-display';\n"
+                 "          const nu = document.createElement('span'); nu.className = 'route-number'; nu.textContent = __n1;\n"
+                 "          const de = document.createElement('span'); de.className = 'route-dest'; de.textContent = __ds[__j] || '';\n"
+                 "          dp.append(nu, de); one.append(im, dp); art.appendChild(one);\n"
+                 "        });\n"
+                 "        button.setAttribute('aria-label', `Buses ${__nums.join(' and ')}`);\n"
+                 "      }"),
+                ("cards: GRID_CARDS_SNAPSHOT() });",
+                 "cards: GRID_CARDS_SNAPSHOT(), two: window.__psTwo || null });"),
+            ]),
         ]
 
         @app.get("/game/app.js")
@@ -321,21 +403,81 @@ def create_app(engine, game_dir=None):
         return JSONResponse({"model": engine.model_name, "device": str(engine.device), "fast": engine.fast,
                              "gpu": torch.cuda.get_device_name(0) if engine.device.type == "cuda" else None})
 
+    @app.post("/export")
+    async def export_xlsx(payload: dict):
+        """Build the end-of-session Excel summary, save a copy in exports/, and return it."""
+        try:
+            import xlsx_report
+        except ImportError as e:
+            return JSONResponse({"error": f"Excel export needs openpyxl: pip install openpyxl ({e})"}, status_code=500)
+        import re
+        from datetime import datetime
+        out_dir = export_dir or os.path.join(ROOT, "exports")
+        os.makedirs(out_dir, exist_ok=True)
+        pid = re.sub(r"[^A-Za-z0-9_-]+", "_", str((payload.get("meta") or {}).get("participant") or "participant")).strip("_") or "participant"
+        name = f"CatchYourBus_{pid}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+        path = os.path.join(out_dir, name)
+        await run_in_threadpool(xlsx_report.build, payload, path)
+        print(f"Saved session summary: {path}")
+        return FileResponse(path, filename=name,
+                            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+    # latest frame / reading / game state, shown live on the monitor page (memory only, nothing saved)
+    hub = {"frame": None, "frame_t": 0.0, "seq": 0, "result": None, "crops": {}, "state": None, "state_t": 0.0}
+
     @app.websocket("/ws")
     async def ws(sock: WebSocket):
         await sock.accept()
         n = 0
         try:
             while True:
-                data = await sock.receive_bytes()
+                msg = await sock.receive()
+                if msg.get("type") == "websocket.disconnect":
+                    break
+                if msg.get("text") is not None:           # game overlay state (workload level etc.)
+                    try:
+                        hub["state"] = json.loads(msg["text"]); hub["state_t"] = time.time()
+                    except ValueError:
+                        pass
+                    continue
+                data = msg.get("bytes")
+                if not data:
+                    continue
                 n += 1
+                hub["frame"], hub["frame_t"], hub["seq"] = data, time.time(), hub["seq"] + 1   # relay before processing
                 try:
                     rgb = np.array(Image.open(io.BytesIO(data)).convert("RGB"))
                     result = await run_in_threadpool(engine.process, rgb, n % 4 == 1)
                 except Exception as e:  # keep the stream alive on a bad frame
                     result = {"error": str(e)}
+                hub["result"] = {k: v for k, v in result.items() if k != "crops"}
+                if result.get("crops"):
+                    hub["crops"] = result["crops"]
                 await sock.send_json(result)
         except WebSocketDisconnect:
+            pass
+
+    @app.websocket("/watch")
+    async def watch(sock: WebSocket):
+        """Monitor page: ~12 updates/s with the game's latest camera frame, reading and workload state."""
+        await sock.accept()
+        sent_seq, sent_crops, last_json = -1, None, 0.0
+        want_frames = sock.query_params.get("frames", "1") != "0"   # monitor showing its own camera -> no frames
+        try:
+            while True:
+                t = time.time()
+                if want_frames and hub["seq"] != sent_seq and hub["frame"] is not None:
+                    await sock.send_bytes(hub["frame"])              # raw JPEG, sent as soon as a new one arrives
+                    sent_seq = hub["seq"]
+                if t - last_json >= 0.1:                            # readings + workload state, 10x per second
+                    msg = {"type": "watch", "now": t, "live": hub["frame"] is not None and t - hub["frame_t"] < 2,
+                           "state": hub["state"] if t - hub["state_t"] < 2 else None, "result": hub["result"]}
+                    if hub["crops"] is not sent_crops:
+                        msg["crops"] = hub["crops"]; sent_crops = hub["crops"]
+                    await sock.send_json(msg)
+                    last_json = t
+                await asyncio.sleep(0.015)
+        except (WebSocketDisconnect, RuntimeError):
             pass
 
     return app
@@ -350,6 +492,9 @@ if __name__ == "__main__":
     ap.add_argument("--exact", action="store_true",
                     help="use the authors' pipeline exactly (single-image Face Mesh + iris step) - slower")
     ap.add_argument("--game-dir", help="folder of the Catch Your Bus game (BN5213-UI-design) to serve at /game/")
+    ap.add_argument("--sets", type=int, default=2, help="number of sets (default 2)")
+    ap.add_argument("--games", type=int, default=5, help="games per set (default 5)")
+    ap.add_argument("--emg-dir", help="folder of the EMG code (BN5213-final-EMG); found automatically next to this file")
     a = ap.parse_args()
     if a.game_dir and not os.path.isfile(os.path.join(a.game_dir, "index.html")):
         sys.exit(f"--game-dir: no index.html in {a.game_dir}")
@@ -357,7 +502,18 @@ if __name__ == "__main__":
     engine = PupilEngine(a.model, blink_detection=not a.no_blink, fast=not a.exact)
     engine.process(np.zeros((480, 640, 3), np.uint8))   # warm-up
     print(f"Ready: {a.model} on {engine.device}.")
-    print(f"  Pupil monitor:          http://localhost:{a.port}/")
+    with open(os.path.join(ROOT, "pupilsense-adapter.js"), encoding="utf-8") as f:
+        _js = f.read()
+    print("  Overlay script: " + ("latest (2x2, 6 levels, EMG confirm)" if "emgActivation" in _js else
+          "OLD VERSION - replace pupilsense-adapter.js with the one from the latest zip"))
+    with open(os.path.join(ROOT, "pupil_workload.html"), encoding="utf-8") as f:
+        _html = f.read()
+    print("  Monitor page:   " + ("latest (live game view)" if "gchip" in _html else
+          "OLD VERSION - replace pupil_workload.html with the one from the latest zip"))
+    emg_web = find_emg_dir(a.emg_dir)
+    print("  EMG code:       " + (emg_web if emg_web else "NOT FOUND - clone BN5213-final-EMG next to pupil_server.py (or --emg-dir); EMG confirm disabled"))
+    print(f"  Pupil monitor:          http://localhost:{a.port}/monitor")
     if a.game_dir:
         print(f"  Catch Your Bus + pupil: http://localhost:{a.port}/game/")
-    uvicorn.run(create_app(engine, a.game_dir), host=a.host, port=a.port, log_level="warning")
+    print(f"  Protocol: {a.sets} sets x {a.games} games. Excel summaries are saved in {os.path.join(ROOT, 'exports')}")
+    uvicorn.run(create_app(engine, a.game_dir, (a.sets, a.games), emg_web=emg_web), host=a.host, port=a.port, log_level="warning")
