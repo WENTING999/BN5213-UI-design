@@ -7,7 +7,8 @@
  *   1. camera + face positioning (optional brightness lock)
  *   2. WebGazer calibration: click each of 9 dots 5 times, then look at 5 check dots (validation)
  *   3. pupil baseline: 10 s on the Remember screen + 10 s on the Find screen (PupilSense)
- *   4. EMG muscle sensor: connect Arduino, 5 s relaxed baseline, check the threshold (or skip = mouse click)
+ *   4. EMG muscle sensor: connect Arduino, 5 s relaxed baseline, check the threshold (or skip = mouse click);
+ *      detection uses the EMG team's hybrid amplitude/burst detector (BN5213-EMG-Latest, served at /emg/lib)
  *
  * During the game:
  *   - look at a bus for 2 s (dwell) to select it; look at another bus 2 s to change; EMG activation confirms
@@ -37,6 +38,11 @@
     medSD: 2, medMin: 0.10,        // MEDIUM from pupil >= baseline + max(2 SD, 0.10 mm)
     highSD: 3, highMin: 0.20,      // HIGH   from pupil >= baseline + max(3 SD, 0.20 mm)
     sdMin: 0.05,                   // baseline SD is never taken as smaller than this
+    standConfirm: true,            // EMG: standing up confirms the selected bus (activation held >= standMinMs)
+    standMinMs: 1000,              //   shorter activations (e.g. a seated squeeze) are rejected
+    sitQuietMs: 1500,              //   seated again = muscle quiet this long ...
+    standMinS: 4,                  //   ... after a 2nd activation (sitting down) or this many s after standing
+    standMaxS: 15,                 //   next game anyway after this (sit-down marked 'not detected')
     baseS: FAST ? 6 : 10,          // seconds per baseline screen
     checkS: FAST ? 4 : 12,         // seconds per colour in the light check
     valSettleMs: 900, valRecordMs: 1200,              // gaze validation per dot
@@ -184,6 +190,9 @@
   .ps-fbar{display:inline-block;width:200px;height:14px;background:#F1F3EF;border-radius:6px;margin-right:10px;vertical-align:middle;overflow:hidden}
   .ps-fbar i{display:block;height:100%;border-radius:6px}
   .ps-flink{background:none;border:0;color:#267B53;font:inherit;font-weight:700;text-decoration:underline;cursor:pointer}
+  #ps-prompt{position:fixed;left:50%;bottom:clamp(14px,4svh,40px);transform:translateX(-50%);z-index:8950;display:none;
+    background:#1D6041;color:#fff;font:800 clamp(24px,3.6svh,40px)/1.2 Inter,"Segoe UI",Arial,sans-serif;padding:14px 34px;border-radius:999px;
+    box-shadow:0 8px 24px rgba(0,0,0,.18);pointer-events:none;white-space:nowrap}
   #ps-dwell{position:fixed;z-index:8900;height:10px;border-radius:6px;background:#267B53;display:none;pointer-events:none}
   body.ps-hidden-level #ps-level,body.ps-hidden-level #ps-meta,body.ps-hidden-level #ps-diff{visibility:hidden}`;
   document.head.insertAdjacentHTML('beforeend', `<style>${css}</style>`);
@@ -237,11 +246,18 @@
     <div class="row"><button class="ps-btn" id="ps-emg-serial">Connect Arduino</button><button class="ps-btn" id="ps-emg-sim">Simulation</button>
       <button class="ps-btn" id="ps-emg-cal">Relaxed baseline (5 s)</button><button class="ps-btn" id="ps-emg-off">Disconnect</button>
       <label title="When on, a muscle activation confirms the bus you are looking at (mouse click still works)"><input type="checkbox" id="ps-emg-use" checked> Confirm with EMG</label></div>
+    <div class="row"><label title="Detector thresholds × this factor. Lower = reacts to smaller activations (more false ones); higher = needs stronger activations">Sensitivity
+        <select id="ps-emg-sens"><option value="0.7">0.7 (sensitive)</option><option value="1" selected>1 (normal)</option><option value="1.5">1.5 (strict)</option></select></label>
+      <label title="Mains-hum notch inside the EMG team's detector">Notch <select id="ps-emg-notch"><option value="50" selected>50 Hz (Singapore)</option><option value="60">60 Hz</option><option value="0">off</option></select></label>
+      <span class="res" id="ps-emg-det" style="color:#78847B">Changing these needs a new relaxed baseline.</span></div>
+    <div class="row"><label title="Standing up (activation held at least this long) confirms the selected bus; off = any activation confirms"><input type="checkbox" id="ps-stand" ${CFG.standConfirm ? 'checked' : ''}> Stand up to confirm, held ≥
+        <input type="number" id="ps-standms" value="${CFG.standMinMs}" min="200" max="4000" step="100" style="width:60px"> ms</label>
+      <label title="Next game when the muscle is quiet this long after sitting down">Seated after quiet <input type="number" id="ps-sitms" value="${CFG.sitQuietMs}" min="300" max="5000" step="100" style="width:60px"> ms</label>
+      <label title="Next game anyway after this many seconds">max <input type="number" id="ps-standmax" value="${CFG.standMaxS}" min="5" max="60" style="width:46px"> s</label></div>
     <div class="row" style="align-items:center"><div id="ps-emg-meter" style="position:relative;flex:1;min-width:220px;height:14px;background:#EDF0EB;border-radius:7px;overflow:hidden">
       <i id="ps-emg-fill" style="position:absolute;left:0;top:0;bottom:0;width:0;background:#7FA88F"></i><b id="ps-emg-thr" style="position:absolute;top:-2px;bottom:-2px;width:3px;background:#C2412D;display:none"></b></div>
       <span id="ps-emg-val" style="font-size:12px;color:#425248;min-width:170px">—</span></div>
     <div class="res" id="ps-r-emg" style="color:#78847B">Not connected. Upload firmware/BN5213_EMG_filtered (raw EMG on A0) to the Arduino Uno, then Connect Arduino (Chrome/Edge). (Simulation button = researcher test only; hold M to activate.)</div>
-    <div class="res" style="color:#78847B">Each game screen is compared with its own seated baseline.</div>
   </div>
   <div id="ps-calib" role="dialog" aria-modal="true" aria-labelledby="ps-c-title">
     <div class="card">
@@ -421,35 +437,53 @@
   }
 
   // ------------------------------------------------------------------ EMG ----
-  // Muscle-activation confirmation using the EMG team's code (BN5213-final-EMG, served by pupil_server.py at /emg/).
-  // Detector: 20 ms envelope, threshold = relaxed baseline mean + max(3 SD, 10 ADC), 30 ms onset, 300 ms refractory.
+  // Muscle-activation confirmation using the EMG team's code (BN5213-EMG-Latest, served by pupil_server.py at /emg/).
+  // Detector (EMG team, BN5213-EMG-Latest): hybrid envelope detector 'envelope_hybrid_v2' — median + 50 Hz notch + 25 Hz low-pass;
+  // activation by AMPLITUDE (envelope above rest) or BURST (short fast change), both fitted to 5 s seated rest;
+  // 30 ms onset, must return to quiet + 1.2 s refractory before the next activation.
   // Rule: an activation confirms only if its onset is AFTER the gaze lock and the eyes are still on the locked bus.
   const EMG = { ctl: null, source: 'off', baseOk: false, active: false, adc: null, env: null, thr: null, rows: [], events: [],
-                use: true, warmTimer: null, keepT: 0, viaEmg: false, lastRej: '', filter: null };
+                use: true, keepT: 0, viaEmg: false, lastRej: '', filter: null, warmLockAt: null, path: null,
+                opts: { sensitivity: 1, notchHz: 50 } };
   async function emgLoad() {
     if (EMG.ctl) return EMG.ctl;
     let mod;
     try { mod = await import('/emg/lib/emg-controller.mjs'); }
-    catch (e) { throw new Error('EMG code not found. Clone BN5213-final-EMG next to pupil_server.py or start the server with --emg-dir <folder>.'); }
+    catch (e) { throw new Error('EMG code not found. Clone BN5213-EMG-Latest next to pupil_server.py or start the server with --emg-dir <folder>.'); }
     const ctl = EMG.ctl = new mod.EmgController();
     ctl.on('sample', d => {
       const r = d.results[0], t = now();
-      EMG.adc = d.row.adc0; EMG.env = r.filtered ?? d.row.filtered0; EMG.thr = d.row.threshold0; EMG.active = !!r.active;
+      EMG.adc = d.row.adc0; EMG.env = r.filtered ?? d.row.filtered0; EMG.active = !!r.active;
+      EMG.thr = r.amplitudeThreshold ?? d.row.amplitude_threshold0 ?? d.row.threshold0;            // amplitude path (ADC)
+      EMG.feat = r.feature ?? null; EMG.featThr = r.amplitudeThreshold != null ? r.threshold : null;  // burst path (energy)
+      EMG.rate = r.rate ?? null; EMG.rateThr = r.rateThreshold ?? null; EMG.quality = r.quality ?? 'ok';
       if (t - EMG.keepT >= 0.05) {   // keep 20 readings/s for the Excel file
         EMG.keepT = t;
-        EMG.rows.push({ t, iso: new Date().toISOString(), phase, set: attempt?.set ?? '', rep: attempt?.rep ?? '', adc: EMG.adc, env: EMG.env, thr: EMG.thr, active: EMG.active });
+        EMG.rows.push({ t, iso: new Date().toISOString(), phase, set: attempt?.set ?? '', rep: attempt?.rep ?? '', adc: EMG.adc, env: EMG.env, thr: EMG.thr, feat: EMG.feat, featThr: EMG.featThr, rate: EMG.rate, rateThr: EMG.rateThr,
+                        quality: EMG.quality, path: r.activationPath ?? '', active: EMG.active });
         if (EMG.rows.length > 120000) EMG.rows.shift();
       }
     });
     ctl.on('baseline_start', () => { EMG.baseOk = false; emgStatus('Relaxed baseline: keep the muscle relaxed for 5 s…'); });
     ctl.on('baseline_ready', () => { EMG.baseOk = true; const b = ctl.processors[0].baseline;
-      emgStatus(`Ready — relaxed ${b.mean.toFixed(0)} ± ${b.sd.toFixed(1)} ADC, activation above ${ctl.processors[0].threshold.toFixed(0)} ADC. ${EMG.filter ? 'Arduino filter: ' + EMG.filter : 'No filter reported (original firmware?)'}`); });
+      emgStatus(`Ready — ${emgThrText()}. ${EMG.filter ? 'Arduino filter: ' + EMG.filter : 'No filter reported (original firmware?)'}`); });
     ctl.on('baseline_failed', e => { EMG.baseOk = false; emgStatus('Baseline failed (' + (e.reason || 'signal') + '). Relax the muscle and press Relaxed baseline again.', true); });
     ctl.on('activation', emgActivation);
-    ctl.on('release', () => { clearTimeout(EMG.warmTimer); emgLog('release'); });
+    ctl.on('release', e => emgLog('release', e?.reason ? { reason: e.reason } : {}));
+    ctl.on('baseline_invalidated', e => { EMG.baseOk = false; emgStatus('EMG baseline needed again (' + (e?.reason || 'changed') + '): relax and press Relaxed baseline.', true); });
     ctl.on('closed', () => { EMG.source = 'off'; EMG.baseOk = false; emgStatus('Disconnected.', true); });
     ctl.on('error', e => emgStatus('EMG error: ' + (e.message || e), true));
     return ctl;
+  }
+  function emgThrText() {   // human-readable thresholds (works with the old and the new detector)
+    const p = EMG.ctl?.processors?.[0], b = p?.baseline; if (!b) return 'no baseline';
+    const amp = p.amplitudeThreshold ?? p.threshold;
+    return `relaxed ${b.mean.toFixed(0)} ± ${b.sd.toFixed(1)} ADC · activation above ${amp.toFixed(0)} ADC` +
+           (p.amplitudeThreshold != null ? ` or a short burst (energy > ${p.threshold.toFixed(1)})` : '');
+  }
+  function emgDetectorText() {
+    const c = EMG.ctl?.processors?.[0]?.config || {};
+    return c.algorithm ? `${c.algorithm} · sensitivity ${c.sensitivity} · notch ${c.notchHz ? c.notchHz + ' Hz' : 'off'}` : 'envelope (old detector)';
   }
   function emgReady() { return !!EMG.ctl && EMG.ctl.connected && EMG.baseOk && EMG.ctl.latest && performance.now() - EMG.ctl.latest.row.received_perf_ms < 1000; }
   function emgStatus(text, err) { const el = $('ps-r-emg'); if (el) { el.textContent = text; el.style.color = err ? '#C2412D' : '#425248'; } }
@@ -459,6 +493,7 @@
   async function emgConnect(kind) {
     const ctl = await emgLoad();
     emgStatus(kind === 'sim' ? 'Starting simulation…' : 'Choose the Arduino port in the browser window…');
+    if (ctl.configureDetector) ctl.detectorOptions = { ...ctl.detectorOptions, ...EMG.opts };   // sensitivity / notch from the panel
     if (kind === 'sim') await ctl.connectSimulation(); else await ctl.connectSerial();
     EMG.source = kind === 'sim' ? 'simulation' : 'serial';
     for (let i = 0; i < 100 && !ctl.latest; i++) await new Promise(r => setTimeout(r, 100));   // UNO resets when the port opens
@@ -483,13 +518,67 @@
       ctl.calibrate(5000);
     });
   }
+  // ------------------------------------------------------- stand-up confirmation ----
+  // Look at a bus (2 s) -> stand up. An activation that starts after the selection, with the eyes on that bus, and is
+  // still active after CFG.standMinMs counts as standing up and confirms. The next game starts when the person is
+  // seated again (muscle quiet CFG.sitQuietMs after a 2nd activation or CFG.standMinS), or after CFG.standMaxS.
+  // One EMG channel cannot prove a completed stand; this is an activation-duration rule.
+  const STAND = { pending: null, active: null };
+  const standMode = () => CFG.standConfirm && EMG.use && emgReady();
+  function prompt(text) {
+    let el = document.getElementById('ps-prompt');
+    if (!el) { el = document.createElement('div'); el.id = 'ps-prompt'; document.body.appendChild(el); }
+    el.textContent = text || ''; el.style.display = text ? 'block' : 'none';
+  }
+  function standCandidate(onset, path, onConfirm, what) {
+    clearTimeout(STAND.pending?.timer);
+    const wait = Math.max(0, onset + CFG.standMinMs / 1000 - now());
+    emgLog('stand_candidate', { path, reason: what });
+    const p = STAND.pending = { onset, path, timer: setTimeout(() => {
+      if (STAND.pending !== p) return;
+      STAND.pending = null;
+      if (!EMG.ctl?.latest?.results?.[0]?.active) {
+        emgLog('rejected', { reason: `activation shorter than ${CFG.standMinMs} ms — not a stand-up` });
+        prompt(what === 'practice' ? 'Stand up fully to confirm.' : 'Stand up fully to catch the bus.');
+        return;
+      }
+      onConfirm(p);
+    }, wait * 1000) };
+  }
+  function standTrack(onset, done) {   // after the stand-up: wait until seated again
+    clearInterval(STAND.active?.timer);
+    const a = STAND.active = { onset, confirmAt: now(), releaseAt: null, acts: 1, quietSince: null, done };
+    prompt('Now sit down slowly.');
+    a.timer = setInterval(() => {
+      if (STAND.active !== a) return clearInterval(a.timer);
+      const t = now(), act = !!EMG.ctl?.latest?.results?.[0]?.active;
+      if (act) a.quietSince = null; else { a.quietSince ??= t; a.releaseAt ??= t; }
+      const enough = a.acts >= 2 || t - a.onset >= CFG.standMinS;
+      const seated = a.quietSince != null && t - a.quietSince >= CFG.sitQuietMs / 1000 && enough;
+      if (seated || t - a.confirmAt >= CFG.standMaxS) {
+        clearInterval(a.timer); STAND.active = null; prompt('');
+        emgLog(seated ? 'seated' : 'sit_timeout');
+        a.done({ seated, standActiveS: (a.releaseAt ?? t) - a.onset, toSeatedS: t - a.onset });
+      }
+    }, 100);
+  }
+  function standReset() { clearTimeout(STAND.pending?.timer); clearInterval(STAND.active?.timer); STAND.pending = STAND.active = null; prompt(''); }
+
   function emgActivation(ev) {
     const onset = (Number.isFinite(ev.perfMs) ? ev.perfMs : performance.now()) / 1000;
-    emgLog('activation', { onset_s: onset });
+    emgLog('activation', { onset_s: onset, path: ev.activationPath || '' });
+    if (STAND.active) { STAND.active.acts++; emgLog('sit_activation'); return; }   // sitting down
     if (!EMG.use || !emgReady() || ev.channel !== 0) return;
-    if (screen === 'warmup' && warmupLocked) {   // practice: hold for 0.5 s
-      clearTimeout(EMG.warmTimer);
-      EMG.warmTimer = setTimeout(() => { if (EMG.ctl?.latest?.results[0].active) { emgLog('confirm_warmup'); CYB.inputs.warmupFootPressConfirmed(); } }, 500);
+    if (screen === 'warmup' && warmupLocked) {   // practice: one new activation after the bus was selected
+      if (EMG.warmLockAt != null && onset < EMG.warmLockAt - 0.05) { emgLog('rejected', { reason: 'activation started before the practice bus was selected' }); return; }
+      if (standMode()) {   // practice stand-up: stand, sit down, then the game starts
+        standCandidate(onset, ev.activationPath || '', p => {
+          emgLog('stand_warmup', { path: p.path });
+          standTrack(p.onset, () => { emgLog('confirm_warmup'); CYB.inputs.warmupFootPressConfirmed(); });
+        }, 'practice');
+        return;
+      }
+      emgLog('confirm_warmup', { path: ev.activationPath || '' }); CYB.inputs.warmupFootPressConfirmed();
       return;
     }
     if (phase !== 'confirm' || !trial || trial.lockAt == null) { emgLog('ignored', { reason: 'no bus selected' }); return; }
@@ -498,9 +587,24 @@
     if (gazeSelect && gaze && now() - gaze.t < 0.6 && locked && !hit(gaze.x, gaze.y, [locked])) {
       EMG.lastRej = 'looking at another bus'; emgLog('rejected', { reason: 'eyes not on the selected bus' }); return;
     }
-    trial.emgOnsetAfterLock = onset - trial.lockAt;
-    EMG.viaEmg = true; emgLog('confirm', { onset_after_lock_s: trial.emgOnsetAfterLock });
-    CYB.inputs.emgConfirmed();
+    const tr = trial, lockAt = trial.lockAt;
+    const confirmNow = path => {
+      tr.emgOnsetAfterLock = onset - tr.lockAt; tr.emgPath = path;
+      EMG.viaEmg = true; emgLog('confirm', { onset_after_lock_s: tr.emgOnsetAfterLock, path });
+      CYB.inputs.emgConfirmed();
+    };
+    if (!standMode()) { confirmNow(ev.activationPath || ''); return; }
+    standCandidate(onset, ev.activationPath || '', p => {
+      if (trial !== tr || phase !== 'confirm' || tr.lockAt !== lockAt) return;
+      tr.confirmStand = true;
+      CYB.configure?.({ autoCompleteMovement: false });   // the game waits until the person is seated again
+      confirmNow(p.path);
+      standTrack(p.onset, r => {
+        Object.assign(tr, { standActiveS: r.standActiveS, toSeatedS: r.toSeatedS, sitDetected: r.seated });
+        CYB.inputs.repCompleted?.({ source: r.seated ? 'emg' : 'emg-timeout', qualityFlag: r.seated ? 'seated_detected' : 'sit_not_detected' });
+        CYB.configure?.({ autoCompleteMovement: true });
+      });
+    }, 'game');
   }
   setInterval(() => {   // live meter + chip
     const chip = $('ps-emgchip'); if (!chip) return;
@@ -512,11 +616,11 @@
     const fill = $('ps-emg-fill'), mark = $('ps-emg-thr'), max = 1023;
     if (fill) { fill.style.width = `${Math.min(100, (EMG.env ?? 0) / max * 100)}%`; fill.style.background = EMG.active ? '#E99A2E' : '#7FA88F'; }
     if (mark && EMG.thr != null) { mark.style.display = 'block'; mark.style.left = `${EMG.thr / max * 100}%`; }
-    const v = $('ps-emg-val'); if (v) v.textContent = `${EMG.source} · ${Math.round(EMG.env ?? 0)} / ${EMG.thr != null ? Math.round(EMG.thr) : '–'} ADC · ${EMG.active ? 'ACTIVE' : 'relaxed'} · missed ${EMG.ctl.latest.row.missed_slots ?? 0}`;
+    const v = $('ps-emg-val'); if (v) v.textContent = `${EMG.source} · ${Math.round(EMG.env ?? 0)} / ${EMG.thr != null ? Math.round(EMG.thr) : '–'} ADC · ${EMG.active ? 'ACTIVE' + (EMG.ctl.latest.results?.[0]?.activationPath ? ' (' + EMG.ctl.latest.results[0].activationPath + ')' : '') : 'quiet'}${EMG.quality && EMG.quality !== 'ok' ? ' · ' + EMG.quality : ''} · missed ${EMG.ctl.latest.row.missed_slots ?? 0}`;
     v && (v.title = EMG.filter ? 'Arduino filter: ' + EMG.filter : 'No filter reported by the Arduino');
     const note = document.getElementById('warmupNote');
     if (note && on && EMG.use && screen === 'warmup' && warmupLocked && !/complete/i.test(note.textContent))
-      note.textContent = 'Now tighten the muscle with the sensor and hold it for half a second.';
+      note.textContent = standMode() ? (STAND.active ? 'Good — now sit down slowly.' : 'Now stand up to confirm.') : 'Now activate the muscle once to confirm.';
   }, 100);
   const emgTry = fn => async () => { try { await fn(); } catch (e) { emgStatus(e.message || String(e), true); } };
   $('ps-emg-serial').onclick = emgTry(() => emgConnect('serial'));
@@ -524,11 +628,24 @@
   $('ps-emg-cal').onclick = emgTry(() => emgBaseline());
   $('ps-emg-off').onclick = emgTry(async () => { await EMG.ctl?.disconnect(); EMG.baseOk = false; });
   $('ps-emg-use').onchange = e => { EMG.use = e.target.checked; };
+  $('ps-stand').onchange = e => { CFG.standConfirm = e.target.checked; };
+  $('ps-standms').oninput = e => { CFG.standMinMs = Math.max(200, +e.target.value || CFG.standMinMs); };
+  $('ps-sitms').oninput = e => { CFG.sitQuietMs = Math.max(300, +e.target.value || CFG.sitQuietMs); };
+  $('ps-standmax').oninput = e => { CFG.standMaxS = Math.max(5, +e.target.value || CFG.standMaxS); };
+  const emgSetDetector = emgTry(async () => {
+    EMG.opts = { sensitivity: +$('ps-emg-sens').value, notchHz: +$('ps-emg-notch').value };
+    const ctl = await emgLoad();
+    if (!ctl.configureDetector) { emgStatus('This EMG code has no detector settings (old version).', true); return; }
+    ctl.configureDetector(EMG.opts); EMG.baseOk = false;
+    if (ctl.latest) { emgStatus('Detector changed — relax: new 5 s baseline…'); await emgBaseline(); }
+  });
+  $('ps-emg-sens').onchange = emgSetDetector; $('ps-emg-notch').onchange = emgSetDetector;
   window.addEventListener('keydown', e => { if (e.code === 'KeyM' && !/INPUT|SELECT|TEXTAREA/.test(e.target.tagName)) EMG.ctl?.setHold(true); });
   window.addEventListener('keyup', e => { if (e.code === 'KeyM') EMG.ctl?.setHold(false); });
 
   // ---------------------------------------------------------- dwell select ----
   function dwellTargets() {
+    if (STAND.pending || STAND.active) return [];   // standing up: the eyes may leave the screen
     if (screen === 'warmup' && !warmupLocked) return [document.getElementById('warmupBus')].filter(Boolean);
     if (phase === 'search') return [...document.querySelectorAll('#busGrid .bus-card')];
     // already locked: looking at a DIFFERENT bus for the dwell time changes the selection
@@ -571,8 +688,8 @@
     const t = now(), d = ev.detail || {};
     switch (ev.type) {
       case 'screen_changed': screen = d.screen; if (d.screen !== 'game') phase = d.screen; resetDwell(); break;
-      case 'session_started': warmupLocked = false; DIFF.streak = 0; openCalibration(); break;
-      case 'warmup_gaze_locked': warmupLocked = true; resetDwell(); break;
+      case 'session_started': standReset(); warmupLocked = false; DIFF.streak = 0; openCalibration(); break;
+      case 'warmup_gaze_locked': warmupLocked = true; EMG.warmLockAt = t; resetDwell(); if (standMode()) prompt('Stand up to confirm.'); break;
       case 'trial_memory_shown':
         phase = 'memory'; attempt = { attemptId: d.attemptId, set: d.set, rep: d.rep };
         showMemoryGrid(d.targetPos, d.targetRoute, d.targetDest, d.two);
@@ -586,22 +703,22 @@
         if (trial?.two) { const title = document.getElementById('gameTitle'); if (title) title.textContent = trial.two.routes.length >= 3 ? 'Find all 3 buses!' : 'Find the pair!'; }
         break;
       case 'gaze_target_locked':
-        phase = 'confirm'; resetDwell();
+        phase = 'confirm'; resetDwell(); if (standMode()) prompt('Stand up to catch this bus.');
         if (trial) { trial.lockAt = t; trial.searchTimeMs = d.searchTimeMs; trial.selected = d.route; trial.selectedPos = d.pos ?? ''; trial.selectedDest = d.dest ?? ''; trial.lockSource = d.source; }
         break;
       case 'gaze_target_cleared':
-        resetDwell();
+        resetDwell(); if (!STAND.active) { clearTimeout(STAND.pending?.timer); STAND.pending = null; prompt(''); }
         phase = 'search'; if (trial) { trial.reselections = (trial.reselections || 0) + 1; trial.lockAt = null; }
         break;
       case 'emg_confirmed':
-        phase = 'movement';
-        if (trial) { trial.confirmBy = EMG.viaEmg ? 'EMG' : 'mouse'; EMG.viaEmg = false; }
+        phase = 'movement'; if (!STAND.active && !STAND.pending) prompt('');
+        if (trial) { trial.confirmBy = EMG.viaEmg ? (trial.confirmStand ? 'EMG stand-up' : 'EMG') : 'mouse'; EMG.viaEmg = false; }
         if (trial) { trial.correct = d.isCorrect; trial.emgAt = t; finaliseTrial(trial); adapt(trial); trials.push(trial); trial = null; }
         break;
       case 'rep_completed': phase = 'settle'; settleUntil = t + CFG.settleS; break;
       case 'rest_started': phase = 'rest'; attempt = null; break;
-      case 'session_completed': phase = 'done'; attempt = null; session.end = new Date(); exportExcel(true); setTimeout(showFinal, 50); break;
-      case 'new_session_ready': phase = 'setup'; attempt = null; trials = []; samples = []; hideFinal(); break;
+      case 'session_completed': standReset(); CYB.configure?.({ autoCompleteMovement: true }); phase = 'done'; attempt = null; session.end = new Date(); exportExcel(true); setTimeout(showFinal, 50); break;
+      case 'new_session_ready': standReset(); CYB.configure?.({ autoCompleteMovement: true }); phase = 'setup'; attempt = null; trials = []; samples = []; hideFinal(); break;
     }
   });
 
@@ -787,22 +904,27 @@
       stepMarks(4);
       let emgAgain = !emgReady();
       while (emgAgain) {
-        view({ title: 'Muscle sensor.', text: 'After you pick a bus with your eyes, you confirm it with the muscle sensor. First we measure the muscle while it is relaxed (5 seconds).',
+        view({ title: 'Muscle sensor.', text: 'After you pick a bus with your eyes, you stand up to catch it — the muscle sensor notices when you stand. First we measure the muscle while you sit relaxed (5 seconds).',
                result: 'Plug in the Arduino USB cable, then press Connect Arduino and choose its port.' });
         const pick = EMG.ctl?.connected && EMG.source === 'serial' ? 'serial'     // already connected: just redo the baseline
           : await choose([{ label: 'Connect Arduino', value: 'serial', primary: true }, { label: 'Skip — confirm by clicking', value: 'skip' }]);
         if (pick === 'skip') { EMG.use = false; $('ps-emg-use').checked = false; break; }
-        view({ title: 'Relax the muscle.', text: 'Keep still and relaxed for 5 seconds — the baseline is being recorded…' });
+        view({ title: 'Sit still and relax.', text: 'Stay seated and relaxed for 5 seconds — the baseline is being recorded…' });
         try {
           if (EMG.ctl?.connected && EMG.source === 'serial') await emgBaseline(); else await emgConnect(pick);
           const b = EMG.ctl.processors[0];
-          view({ kicker: 'CHECK THE THRESHOLD', title: 'Baseline recorded.', text: 'Activate the muscle: the bar should pass the red line and turn orange. Relax: it drops below the line and turns green.',
-                 result: `<div style="width:min(460px,80vw);height:22px;margin:6px auto;background:#EDF0EB;border-radius:11px;position:relative;overflow:hidden"><i id="ps-emg-try" style="position:absolute;left:0;top:0;bottom:0;width:0;background:#7FA88F"></i><b style="position:absolute;top:0;bottom:0;width:3px;left:${b.threshold / 1023 * 100}%;background:#C2412D"></b></div>
-                          <span style="font-size:13px;color:#78847B">Relaxed ${b.baseline.mean.toFixed(0)} ± ${b.baseline.sd.toFixed(1)} ADC · activation above ${b.threshold.toFixed(0)} ADC (red line)</span><br>
+          view({ kicker: 'CHECK THE THRESHOLD', title: 'Baseline recorded.', text: CFG.standConfirm
+                   ? 'Stand up slowly, then sit down: the bar should pass the red line and turn orange while you stand up, and turn green again when you sit relaxed.'
+                   : 'Activate the muscle: the bar should pass the red line and turn orange. Relax: it drops below the line and turns green.',
+                 result: `<div style="width:min(460px,80vw);height:22px;margin:6px auto;background:#EDF0EB;border-radius:11px;position:relative;overflow:hidden"><i id="ps-emg-try" style="position:absolute;left:0;top:0;bottom:0;width:0;background:#7FA88F"></i><b style="position:absolute;top:0;bottom:0;width:3px;left:${(b.amplitudeThreshold ?? b.threshold) / 1023 * 100}%;background:#C2412D"></b></div>
+                          <span style="font-size:13px;color:#78847B">${emgThrText().replace('activation above', 'activation: envelope above').replace(/ ADC ·/, ' ADC ·')} — red line = envelope threshold</span><br>
+                          <span id="ps-emg-trypath" style="font-size:13px;color:#425248">Waiting for an activation…</span><br>
                           <span style="font-size:13px;color:${EMG.filter ? '#78847B' : '#C2412D'}">${EMG.filter ? 'Filter on the Arduino: ' + EMG.filter : 'No filter reported — upload BN5213_EMG_filtered.ino for 50 Hz rejection and band-pass'}</span>` });
+          let tries = 0; const offA = EMG.ctl.on('activation', e => { tries++; const el = document.getElementById('ps-emg-trypath');
+            if (el) el.textContent = `Activation detected ✓ (${e.activationPath || 'envelope'}) — ${tries}×. Relax until the bar is green before the next one.`; });
           const tryT = setInterval(() => { const f = document.getElementById('ps-emg-try'); if (f) { f.style.width = `${Math.min(100, (EMG.env ?? 0) / 10.23)}%`; f.style.background = EMG.active ? '#E99A2E' : '#7FA88F'; } }, 60);
           emgAgain = await choose([{ label: 'Threshold OK — continue', value: false, primary: true }, { label: 'Record baseline again', value: true }]);
-          clearInterval(tryT);
+          clearInterval(tryT); offA?.();
           EMG.use = true; $('ps-emg-use').checked = true;
         } catch (e) {
           view({ title: 'The muscle sensor did not start.', text: e.message || String(e) });
@@ -813,7 +935,7 @@
 
       view({ kicker: 'ALL SET', title: 'Calibration complete.', text: 'Next, a quick practice with one bus.',
              result: [$('ps-r-gaze').textContent, baseline ? baselineText(baseline) : 'No pupil baseline (workload levels off).',
-                      emgReady() && EMG.use ? 'Muscle sensor ready — look at a bus, then tighten the muscle to confirm.' : 'Confirm with a mouse click.'].join('<br>') });
+                      emgReady() && EMG.use ? (CFG.standConfirm ? 'Muscle sensor ready — look at a bus, then stand up to catch it.' : 'Muscle sensor ready — look at a bus, then activate the muscle to confirm.') : 'Confirm with a mouse click.'].join('<br>') });
       if (baseline && (baseline.memory.validFrac < 0.6 || baseline.search.validFrac < 0.6))
         C.status.textContent = 'Note: the camera could not see the eyes clearly for part of the baseline. You can redo it from the Pupil menu.';
       await choose([{ label: 'Start practice', value: 1, primary: true }]);
@@ -1094,6 +1216,17 @@
 
   setInterval(() => { tick(); sendState(); }, 200);
   // live state for the monitor page (http://localhost:8000/) - relayed by the server, nothing is stored there
+  let emgSent = 0, emgEvSent = 0;
+  function emgSeriesSince() {   // envelope rows (20/s) not yet sent to the monitor
+    if (emgSent > EMG.rows.length) emgSent = 0;
+    const out = EMG.rows.slice(Math.max(emgSent, EMG.rows.length - 60)).map(r => [+r.t.toFixed(3), r.env == null ? null : +(+r.env).toFixed(1), r.thr == null ? null : +(+r.thr).toFixed(1), r.active ? 1 : 0]);
+    emgSent = EMG.rows.length; return out;
+  }
+  function emgEventsSince() {
+    if (emgEvSent > EMG.events.length) emgEvSent = 0;
+    const out = EMG.events.slice(emgEvSent).filter(e => ['confirm', 'stand_candidate', 'seated', 'sit_timeout', 'rejected', 'confirm_warmup'].includes(e.type)).map(e => [+e.t.toFixed(3), e.type]);
+    emgEvSent = EMG.events.length; return out;
+  }
   function sendState() {
     if (ws?.readyState !== 1) return;
     const t = now(), last = samples[samples.length - 1];
@@ -1110,7 +1243,9 @@
         difficulty: DIFF.level, difficultyName: L.label || '', adaptive: DIFF.adaptive, games: trials.length,
         correct: trials.filter(x => x.correct).length, lastTrial: trials.length ? { correct: trials.at(-1).correct, level: trials.at(-1).search_level } : null,
         participant: ($('ps-pid')?.value || '').trim(),
-        emg: EMG.ctl?.connected ? { source: EMG.source, ready: emgReady(), active: EMG.active, env: EMG.env, thr: EMG.thr, use: EMG.use } : null }));
+        emg: EMG.ctl?.connected ? { source: EMG.source, ready: emgReady(), active: EMG.active, env: EMG.env, thr: EMG.thr, use: EMG.use,
+          now: t, series: emgSeriesSince(), events: emgEventsSince(),
+          stand: !CFG.standConfirm ? 'off' : STAND.active ? 'standing — waiting to sit' : STAND.pending ? 'checking stand-up…' : phase === 'confirm' ? 'waiting for stand-up' : '' } : null }));
     } catch {}
   }
   function tick() {
@@ -1185,7 +1320,9 @@
       mem_pupil_mm: fmt(t.mem_pupil, 3), mem_pupil_incl_postmove_mm: fmt(t.mem_pupil_incl_postmove, 3), mem_valid: fmt(t.mem_valid), mem_postmove_frac: fmt(t.mem_postmove_frac),
       search_pupil_mm: fmt(t.search_pupil, 3), search_valid: fmt(t.search_valid), search_postmove_frac: fmt(t.search_postmove_frac),
       base_memory_mm: fmt(t.base_memory, 3), base_search_mm: fmt(t.base_search, 3),
-      confirm_by: t.confirmBy ?? '', emg_onset_after_lock_s: t.emgOnsetAfterLock != null ? fmt(t.emgOnsetAfterLock, 3) : '',
+      confirm_by: t.confirmBy ?? '', emg_path: t.emgPath ?? '',
+      stand_active_s: t.standActiveS != null ? fmt(t.standActiveS, 2) : '', stand_to_seated_s: t.toSeatedS != null ? fmt(t.toSeatedS, 2) : '',
+      sit_detected: t.sitDetected == null ? '' : (t.sitDetected ? 'yes' : 'no (timeout)'), emg_onset_after_lock_s: t.emgOnsetAfterLock != null ? fmt(t.emgOnsetAfterLock, 3) : '',
       mem_index: fmt(t.mem_index, 3), mem_level: t.mem_level ?? '', search_index: fmt(t.search_index, 3), search_level: t.search_level ?? '' }));
     const sm = samples.map(s => ({ time: s.iso, phase: s.phase, screen: s.screen, attemptId: s.attemptId, set: s.set, rep: s.rep,
       pupil_mm: fmt(s.pupil, 3), left_mm: fmt(s.left, 3), right_mm: fmt(s.right, 3), blink: s.blink, face: s.face, valid: s.valid,
@@ -1199,15 +1336,20 @@
     const st = CYB.getState();
     const payload = {
       trials: tr, samples: sm, levels: LEVELS.slice(1),
-      emg: EMG.rows.map(r => ({ time: r.iso, phase: r.phase, set: r.set, rep: r.rep, adc: r.adc, envelope: fmt(r.env, 1), threshold: r.thr != null ? fmt(r.thr, 1) : '', active: r.active })),
-      emg_events: EMG.events.map(e => ({ time: e.iso, type: e.type, phase: e.phase, set: e.set, rep: e.rep, detail: e.reason || (e.onset_after_lock_s != null ? `onset ${fmt(e.onset_after_lock_s, 3)} s after selection` : '') })),
+      emg: EMG.rows.map(r => ({ time: r.iso, phase: r.phase, set: r.set, rep: r.rep, adc: r.adc, envelope: fmt(r.env, 1), threshold: r.thr != null ? fmt(r.thr, 1) : '',
+        burst: r.feat != null ? fmt(r.feat, 2) : '', burst_threshold: r.featThr != null ? fmt(r.featThr, 2) : '', rate: r.rate != null ? fmt(r.rate, 2) : '',
+        rate_threshold: r.rateThr != null ? fmt(r.rateThr, 2) : '', quality: r.quality ?? '', path: r.path ?? '', active: r.active })),
+      emg_events: EMG.events.map(e => ({ time: e.iso, type: e.type, phase: e.phase, set: e.set, rep: e.rep, detail: [e.path ? `path ${e.path}` : '', e.reason || (e.onset_after_lock_s != null ? `onset ${fmt(e.onset_after_lock_s, 3)} s after selection` : '')].filter(Boolean).join(' · ') })),
       meta: {
         participant: $('ps-pid').value.trim() || session.participant, date: (session.start || new Date()).toISOString().slice(0, 10),
         start: t(session.start), end: t(session.end || new Date()), sets: st.totalSets, reps: st.repsPerSet, grid: GRID_KEY,
         gazeQuality: gazeCal?.skipped ? 'not calibrated' : (gazeCal?.quality || ''), gazeMedianPx: gazeCal?.median,
         baseMemory: baseline?.memory?.pupil, baseSearch: baseline?.search?.pupil, baseMemorySD: baseline?.memory?.sd, baseSearchSD: baseline?.search?.sd,
         emgSource: EMG.ctl?.connected ? EMG.source : 'not used', emgBaseline: EMG.ctl?.processors?.[0]?.baseline ? `${EMG.ctl.processors[0].baseline.mean.toFixed(1)} ± ${EMG.ctl.processors[0].baseline.sd.toFixed(1)} ADC` : '',
-        emgThreshold: EMG.ctl?.processors?.[0]?.threshold ?? null,
+        emgThreshold: EMG.ctl?.processors?.[0] ? (EMG.ctl.processors[0].amplitudeThreshold ?? EMG.ctl.processors[0].threshold) : null,
+        emgBurstThreshold: EMG.ctl?.processors?.[0]?.amplitudeThreshold != null ? EMG.ctl.processors[0].threshold : null,
+        emgDetector: EMG.ctl?.connected ? emgDetectorText() : '',
+        emgConfirmMode: CFG.standConfirm ? `stand-up: activation held ≥ ${CFG.standMinMs} ms; seated = quiet ${CFG.sitQuietMs} ms; max ${CFG.standMaxS} s` : 'any activation',
         emgFilter: EMG.ctl?.connected ? (EMG.filter || 'none reported (original firmware)') : '',
         emgMissed: EMG.ctl?.latest?.row?.missed_slots ?? null,
         baseMemoryValid: baseline?.memory?.validFrac, baseSearchValid: baseline?.search?.validFrac, lightDiff: check?.diff, exposureLocked,

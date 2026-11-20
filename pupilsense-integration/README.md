@@ -9,6 +9,7 @@ to the Catch Your Bus prototype **without changing the game's own files**.
 | `pupilsense-adapter.js` | Overlay injected into the game: calibration, gaze dwell, live workload, adaptive levels, EMG confirmation, end page |
 | `xlsx_report.py` | End-of-session Excel summary |
 | `pupil_workload.html` | Researcher monitor at `/monitor`: live camera, workload, pupil chart and EMG of the running game |
+| `firmware/BN5213_EMG_filtered/` | Arduino Uno firmware for a raw EMG sensor: 1000 Hz sampling, band-pass + 50 Hz notch on the board |
 
 > Research prototype. Webcam eye tracking and webcam pupil size are approximate; not for clinical use.
 
@@ -29,7 +30,7 @@ git lfs install
 git clone https://huggingface.co/spaces/vijulshah/pupilsense
 cd pupilsense
 git clone https://github.com/WENTING999/BN5213-UI-design
-git clone https://github.com/WENTING999/BN5213-final-EMG
+git clone https://github.com/WENTING999/BN5213-EMG-Latest
 
 conda create -n pupil python=3.10 -y
 conda activate pupil
@@ -49,10 +50,12 @@ cd C:\Users\<you>\pupilsense
 python pupil_server.py --game-dir BN5213-UI-design
 ```
 
-The startup text should list `Overlay script: latest`, `Monitor page: latest` and the `EMG code` folder.
+The startup text should list `Overlay script: latest`, `Monitor page: latest` and
+`EMG code: ...BN5213-EMG-Latest\web (detector: hybrid amplitude/burst v2)`.
 
 - Game: **http://localhost:8000/game/** (Chrome/Edge, `localhost`, allow the camera)
-- Researcher monitor (optional, second window): **http://localhost:8000/monitor**
+- Researcher monitor (optional, second window): **http://localhost:8000/monitor** — live camera, workload, pupil
+  chart, **live EMG chart** (envelope, threshold, stand-up / confirm / seated / rejected markers) and stand-up status
 
 Options: `--sets 2 --games 5` (default protocol), `--model ResNet50`, `--port 8000`, `--emg-dir <folder>`.
 Add `?fast=1` to the game URL for short timers when testing. Stop the server with `Ctrl + C`.
@@ -64,11 +67,11 @@ Add `?fast=1` to the game URL for short timers when testing. Stop the server wit
    1. Camera: participant ID, face in the box, lighting check, optional *Lock brightness*
    2. Eye tracking: click each red dot 5× while looking at it, then look at 5 orange check dots (rated Good / OK / Poor)
    3. Pupil baseline: 10 s on the Remember screen + 10 s on the Find screen, looking at a cross
-   4. Muscle sensor: *Connect Arduino* → 5 s relaxed baseline → activate to pass the red threshold line → continue
-      (*Skip* = confirm with a mouse click)
-3. **Practice**: look at the bus 2 s, then activate the muscle for 0.5 s
-4. **Game** (2 sets × 5 games): remember the bus(es) → look at the matching bus 2 s → activate the muscle to confirm.
-   Looking at another bus for 2 s changes the selection.
+   4. Muscle sensor: *Connect Arduino* → 5 s seated relaxed baseline → stand up and sit down once: the bar must pass
+      the red threshold line while standing → continue (*Skip* = confirm with a mouse click)
+3. **Practice**: look at the bus 2 s → **stand up** → sit down → the game starts
+4. **Game** (2 sets × 5 games): remember the bus(es) → look at the matching bus 2 s → **stand up to catch it** →
+   sit down → next game. Looking at another bus for 2 s changes the selection (until you start standing).
 5. **End page**: score, highest level, pupil dilation in every game (shaded by level), table by level.
    The Excel summary downloads automatically and is saved in `pupilsense\exports\`.
 
@@ -99,22 +102,48 @@ wrong → down 1 · correct + HIGH → down 1 · correct + LOW → up 1 · corre
 
 ## EMG confirmation
 
-Uses the EMG team's browser code from `BN5213-final-EMG` unchanged (Web Serial, clock sync, envelope detector).
-Threshold = relaxed mean + max(3 SD, 10 ADC), held 30 ms. An activation confirms only if it **starts after** the bus
-was selected and the eyes are still on that bus; otherwise it is logged as rejected. A mouse click always works as
-a backup. Arduino firmware for this branch is still being finalised.
+Uses the EMG team's browser code from `BN5213-EMG-Latest` unchanged (Web Serial, clock sync and their hybrid
+detector `envelope_hybrid_v2`). The board sends a 200 Hz envelope; the detector cleans it (3-sample median, 50 Hz
+notch, 25 Hz low-pass) and fires on either path, both fitted to 5 s of seated rest:
+
+- **amplitude**: envelope above rest mean + max(3 SD, 10 ADC) — the red line in calibration
+- **burst**: a short, fast change (energy and rate above their rest 95th percentile + 3 robust SD)
+
+held 30 ms; the signal must go quiet again and 1.2 s must pass before the next activation.
+
+**Standing up confirms the bus.** An activation confirms only if it **starts after** the bus was selected, the eyes
+are still on that bus at its start, and it is **still active after 1 s** (shorter ones — e.g. a seated squeeze — are
+rejected with "Stand up fully to catch the bus"). Prompts on screen: *Stand up to catch this bus* → *Now sit down
+slowly*. The next game starts when the person is seated again: muscle quiet for 1.5 s after a second activation
+(sitting down) or at least 4 s after standing; after 15 s it continues anyway and marks the sit-down "not detected".
+All four numbers and stand-up mode on/off are in Pupil ▾. One EMG channel cannot prove a completed stand: this is
+an activation-duration rule; keep a researcher next to the participant. A mouse click always works as a backup
+(then the game's own 6 s stand-up timer is used). Pupil ▾ → *Sensitivity* (0.7 / 1 / 1.5) and *Notch* (50 / 60 Hz / off)
+re-record the 5 s baseline.
+
+### Arduino firmware (`firmware/BN5213_EMG_filtered/BN5213_EMG_filtered.ino`)
+
+For a sensor whose **raw** EMG output is on A0 (Arduino Uno, 115200 baud, same serial protocol as the EMG team's
+firmware). It samples A0 at **1000 Hz** and on the board applies a 20–450 Hz band-pass (Butterworth) and 50/100/150 Hz
+notches, rectifies, averages 5 samples and sends a **200 Hz envelope** (+100 ADC offset so a relaxed muscle is never
+read as clipped by the detector). Upload with the Arduino IDE and close the Serial Monitor/Plotter before playing.
+If a strong activation does not pass the red line in calibration, set `#define BN_EMG_GAIN 2.0f` (or `4.0f`).
+`#define BN_EMG_PLOTTER 1` shows raw / filtered / envelope in the Serial Plotter at 115200 baud for checking the
+electrodes (set back to 0 before playing). Calibration and Excel show the filter the board reports.
 
 ## Researcher panel (Pupil ▾)
 
 Export Excel · Calibrate again · Light check · show level to participant · gaze selection · brightness lock ·
 gaze dot · mouse as gaze (testing) · adaptive on/off · manual level · dwell · distance check · smoothing ·
-workload thresholds · EMG connect / simulation (M key) / baseline / confirm on-off.
+workload thresholds · EMG connect / simulation (M key) / baseline / confirm on-off / sensitivity / notch.
 
 ## Excel summary
 
 *Summary* (session, results, by set, by level, charts) · *Pupil diameter* (baselines, per-game Remember/Find mean,
-Δ, min/max, left/right, blinks, charts) · *Trials* (one row per game incl. confirmation source and EMG onset) ·
-*Pupil samples* (every reading) · *EMG* (envelope 20/s and every activation) · *Levels and settings*.
+Δ, min/max, left/right, blinks, charts) · *Trials* (one row per game incl. confirmation source, EMG onset and path, stand-up active time, time to seated,
+sit-down detected) ·
+*Pupil samples* (every reading) · *EMG* (envelope, burst energy and rate with thresholds, 20/s, plus every
+activation and its path) · *Levels and settings*.
 
 ## Changes made to the game at runtime
 
@@ -135,4 +164,5 @@ longer fits, the server prints a warning and skips that feature.
   black, otherwise workload levels are not meaningful on that setup.
 - WebGazer error is typically 100–200 px; recalibrate if selections drift. Light the face from the front.
 - Pupil responses are smaller in older adults; validate per participant before relying on adaptive changes.
-- The sit-to-stand is still a timer in the game; EMG does not detect standing.
+- Stand-up detection is a single-channel EMG duration rule, not a posture measurement; validate it on recordings
+  (stand vs seated squeeze) and adjust *held ≥ … ms* if needed.

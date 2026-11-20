@@ -165,7 +165,8 @@ def build(data: dict, path: str) -> str:
     cols = ["Trial", "Set", "Game", "Level played", "Level name", "Target bus(es)", "Target destination(s)",
             "Selected bus(es)", "Selected destination(s)", "Correct (1/0)", "Search time (s)", "Changes of mind",
             "Remember pupil (mm)", "Find pupil (mm)", "Find baseline (mm)", "Find Δ vs baseline (mm)",
-            "Workload index", "Workload level", "Level change", "Decision", "Selected by", "Confirmed by", "EMG onset after selection (s)"]
+            "Workload index", "Workload level", "Level change", "Decision", "Selected by", "Confirmed by", "EMG onset after selection (s)", "EMG path",
+            "Stand-up active (s)", "Stand-up to seated (s)", "Sit-down detected"]
     _header(wt, 1, cols)
     for i, t in enumerate(trials):
         r = i + 2
@@ -179,19 +180,20 @@ def build(data: dict, path: str) -> str:
                 _num(t.get("mem_pupil_mm")), _num(t.get("search_pupil_mm")), _num(t.get("base_search_mm")),
                 None, _num(t.get("search_index")), (t.get("search_level") or "").upper() or "PAUSED",
                 _num(t.get("level_change")), t.get("level_reason", ""), t.get("lock_source", ""),
-                t.get("confirm_by", ""), _num(t.get("emg_onset_after_lock_s"))]
+                t.get("confirm_by", ""), _num(t.get("emg_onset_after_lock_s")), t.get("emg_path", ""),
+                _num(t.get("stand_active_s")), _num(t.get("stand_to_seated_s")), t.get("sit_detected", "")]
         for j, v in enumerate(vals, 1):
             c = wt.cell(row=r, column=j, value=v)
             c.font, c.border = F, THIN
         wt.cell(row=r, column=16, value=f'=IF(AND(ISNUMBER(N{r}),ISNUMBER(O{r})),N{r}-O{r},"")').font = F
-        for col, fmt in ((11, "0.0"), (13, "0.00"), (14, "0.00"), (15, "0.00"), (16, "+0.00;-0.00;0.00"), (17, "0.00"), (19, "+0;-0;0"), (23, "0.00")):
+        for col, fmt in ((11, "0.0"), (13, "0.00"), (14, "0.00"), (15, "0.00"), (16, "+0.00;-0.00;0.00"), (17, "0.00"), (19, "+0;-0;0"), (23, "0.00"), (25, "0.00"), (26, "0.00")):
             wt.cell(row=r, column=col).number_format = fmt
         if i % 2:
             for j in range(1, len(cols) + 1):
                 wt.cell(row=r, column=j).fill = BAND
     n = len(trials)
     last = max(n + 1, 2)
-    _widths(wt, [7, 6, 7, 9, 20, 12, 22, 12, 22, 10, 10, 10, 12, 12, 12, 13, 11, 12, 10, 44, 12, 11, 14])
+    _widths(wt, [7, 6, 7, 9, 20, 12, 22, 12, 22, 10, 10, 10, 12, 12, 12, 13, 11, 12, 10, 44, 12, 13, 14, 16, 12, 13, 14])
     wt.freeze_panes = "A2"
     if n:
         wt.auto_filter.ref = f"A1:{get_column_letter(len(cols))}{last}"
@@ -217,7 +219,10 @@ def build(data: dict, path: str) -> str:
         ("Camera brightness locked", "Yes" if meta.get("exposureLocked") else "No"),
         ("EMG source", meta.get("emgSource") or "not used"),
         ("EMG relaxed baseline", meta.get("emgBaseline") or "—"),
-        ("EMG activation threshold (ADC)", _num(meta.get("emgThreshold"))),
+        ("EMG detector", meta.get("emgDetector") or "—"),
+        ("EMG confirmation", meta.get("emgConfirmMode") or "—"),
+        ("EMG activation threshold – envelope (ADC)", _num(meta.get("emgThreshold"))),
+        ("EMG activation threshold – burst energy", _num(meta.get("emgBurstThreshold"))),
         ("EMG filter (on the Arduino)", meta.get("emgFilter") or "—"),
         ("EMG missed samples", _num(meta.get("emgMissed"))),
     ]
@@ -350,24 +355,30 @@ def build(data: dict, path: str) -> str:
     ev = data.get("emg_events") or []
     if emg or ev:
         we = wb.create_sheet("EMG")
-        _header(we, 1, ["Time", "Phase", "Set", "Game", "ADC", "Envelope (ADC)", "Threshold (ADC)", "Active"])
+        _header(we, 1, ["Time", "Phase", "Set", "Game", "ADC", "Envelope (ADC)", "Envelope threshold (ADC)", "Burst energy",
+                        "Burst threshold", "Rate", "Rate threshold", "Quality", "Path", "Active"])
         for i, r in enumerate(emg):
             vals = [r.get("time"), r.get("phase"), _num(r.get("set")), _num(r.get("rep")), _num(r.get("adc")),
-                    _num(r.get("envelope")), _num(r.get("threshold")), str(r.get("active")).lower() == "true"]
+                    _num(r.get("envelope")), _num(r.get("threshold")), _num(r.get("burst")), _num(r.get("burst_threshold")),
+                    _num(r.get("rate")), _num(r.get("rate_threshold")), r.get("quality", ""), r.get("path", ""),
+                    str(r.get("active")).lower() == "true"]
             for j, v in enumerate(vals, 1):
                 we.cell(row=i + 2, column=j, value=v).font = F
-        _widths(we, [24, 11, 6, 7, 8, 13, 14, 8])
+        _widths(we, [24, 11, 6, 7, 8, 13, 14, 12, 12, 9, 11, 16, 16, 8])
         we.freeze_panes = "A2"
-        we.cell(row=1, column=10, value="EMG events").font = FS
-        _header(we, 2, ["Time", "Event", "Phase", "Set", "Game", "Detail"], col=10)
+        E0 = 16   # events table starts in column P
+        we.cell(row=1, column=E0, value="EMG events").font = FS
+        _header(we, 2, ["Time", "Event", "Phase", "Set", "Game", "Detail"], col=E0)
         for i, e in enumerate(ev):
             vals = [e.get("time"), e.get("type"), e.get("phase"), _num(e.get("set")), _num(e.get("rep")), e.get("detail", "")]
             for j, v in enumerate(vals):
-                we.cell(row=i + 3, column=10 + j, value=v).font = F
-        for col, w in zip("JKLMNO", (24, 16, 11, 6, 7, 46)):
-            we.column_dimensions[col].width = w
-        we.cell(row=1, column=1).comment = Comment("EMG envelope at 20 readings/s (ADC counts of the sensor envelope, not microvolts). "
-                                                   "With BN5213_EMG_filtered.ino: raw EMG sampled at 1000 Hz, band-pass 20-450 Hz, notch 50/100/150 Hz, rectified and averaged to 200 Hz on the Arduino. Detector: baseline mean + max(3 SD, 10 ADC); onset held 30 ms.", "EMG")
+                we.cell(row=i + 3, column=E0 + j, value=v).font = F
+        for k, w in enumerate((24, 16, 11, 6, 7, 52)):
+            we.column_dimensions[get_column_letter(E0 + k)].width = w
+        we.cell(row=1, column=1).comment = Comment("EMG at 20 readings/s, ADC counts of the board's envelope (not microvolts or force). "
+                                                   "Detector (EMG team, envelope_hybrid_v2): median + notch + 25 Hz low-pass; activation when the envelope "
+                                                   "passes its rest threshold (amplitude path) or a short burst passes the energy and rate thresholds "
+                                                   "(burst path); thresholds fitted to 5 s seated rest.", "EMG")
 
     # --------------------------------------------------------- Levels/settings ----
     wl = wb.create_sheet("Levels and settings")

@@ -161,9 +161,9 @@ class PupilEngine:
 
 # ------------------------------------------------------------------ app ----
 def find_emg_dir(given=None):
-    """Folder holding the EMG team's browser code (BN5213-final-EMG/web/lib/emg-controller.mjs)."""
-    cands = [given] if given else [os.path.join(ROOT, "BN5213-final-EMG"), os.path.join(os.path.dirname(ROOT), "BN5213-final-EMG"),
-                                   os.path.join(ROOT, "emg"), os.path.join(os.path.dirname(ROOT), "BN5213-final-EMG-main")]
+    """Folder holding the EMG team's browser code (BN5213-EMG-Latest/web/lib/emg-controller.mjs)."""
+    names = ("BN5213-EMG-Latest", "BN5213-EMG-Latest-main", "BN5213-final-EMG", "BN5213-final-EMG-main", "emg")   # newest first
+    cands = [given] if given else [os.path.join(base, n) for n in names for base in (ROOT, os.path.dirname(ROOT))]
     for c in cands:
         if not c:
             continue
@@ -495,7 +495,7 @@ if __name__ == "__main__":
     ap.add_argument("--game-dir", help="folder of the Catch Your Bus game (BN5213-UI-design) to serve at /game/")
     ap.add_argument("--sets", type=int, default=2, help="number of sets (default 2)")
     ap.add_argument("--games", type=int, default=5, help="games per set (default 5)")
-    ap.add_argument("--emg-dir", help="folder of the EMG code (BN5213-final-EMG); found automatically next to this file")
+    ap.add_argument("--emg-dir", help="folder of the EMG code (BN5213-EMG-Latest); found automatically next to this file")
     a = ap.parse_args()
     if a.game_dir and not os.path.isfile(os.path.join(a.game_dir, "index.html")):
         sys.exit(f"--game-dir: no index.html in {a.game_dir}")
@@ -512,7 +512,11 @@ if __name__ == "__main__":
     print("  Monitor page:   " + ("latest (live game view)" if "gchip" in _html else
           "OLD VERSION - replace pupil_workload.html with the one from the latest zip"))
     emg_web = find_emg_dir(a.emg_dir)
-    print("  EMG code:       " + (emg_web if emg_web else "NOT FOUND - clone BN5213-final-EMG next to pupil_server.py (or --emg-dir); EMG confirm disabled"))
+    if emg_web:
+        hybrid = os.path.isfile(os.path.join(emg_web, "lib", "burst-processor.mjs"))
+        print(f"  EMG code:       {emg_web}  (detector: {'hybrid amplitude/burst v2' if hybrid else 'OLD envelope detector - use BN5213-EMG-Latest'})")
+    else:
+        print("  EMG code:       NOT FOUND - clone BN5213-EMG-Latest next to pupil_server.py (or --emg-dir); EMG confirm disabled")
     print(f"  Pupil monitor:          http://localhost:{a.port}/monitor")
     if a.game_dir:
         print(f"  Catch Your Bus + pupil: http://localhost:{a.port}/game/")

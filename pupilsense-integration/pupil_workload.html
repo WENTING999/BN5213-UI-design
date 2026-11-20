@@ -47,6 +47,7 @@
   .kv span:nth-child(odd){color:var(--muted)}
   .kv b{font-weight:600}
   canvas#gchart{width:100%;height:230px;display:block;margin-top:12px}
+  canvas#gemgchart{width:100%;height:200px;display:block;margin-top:12px}
   #gwarn{color:var(--med);font-size:13px;min-height:18px;margin-top:10px}
   @media (max-width:900px){#game{grid-template-columns:1fr}}
   #idle{max-width:640px;margin:80px auto;text-align:center;color:var(--muted);font-size:15px;line-height:1.6}
@@ -93,12 +94,19 @@
         <span>Baseline for this screen</span><b id="gbase">–</b>
         <span>Games · correct</span><b id="gscore">–</b>
         <span>EMG</span><b id="gemg">–</b>
+        <span>Stand-up</span><b id="gstand">–</b>
       </div>
     </div>
     <div class="panel">
       <h2>Pupil diameter — last 60 s</h2>
       <canvas id="gchart"></canvas>
       <div class="note">Dots: each reading (grey = blink / unusable). Line: smoothed pupil, coloured by workload. Dashed: baseline for the current screen.</div>
+    </div>
+    <div class="panel">
+      <h2>EMG — last 30 s</h2>
+      <canvas id="gemgchart"></canvas>
+      <div class="note">Line: muscle envelope (orange while active). Dashed red: activation threshold.
+        Markers: ▲ stand-up being checked · ✓ confirmed · ● seated again · ✗ rejected (too short / too early / looking away).</div>
     </div>
   </div>
 </section>
@@ -113,7 +121,7 @@ fetch('/info').then(r => r.json()).then(i => { $('status').textContent = `Server
 // ======================================================= live game view ====
 // The game page streams its camera to the server; /watch relays the latest frame, reading and workload state.
 (function gameView() {
-  const g = { pts: [], lastSeen: -1e9 };
+  const g = { pts: [], lastSeen: -1e9, emg: [], emgEv: [], emgNow: 0 };
   const f2 = v => v == null || !isFinite(v) ? '–' : (+v).toFixed(2);
   function chip(text, bg) { const c = $('gchip'); c.textContent = text; c.style.background = bg; c.style.color = bg === '#262b36' ? '' : '#0f1115'; }
   // Camera view: show the webcam directly (smooth, full frame rate; Chrome shares the camera with the game tab).
@@ -220,9 +228,42 @@ fetch('/info').then(r => r.json()).then(i => { $('status').textContent = `Server
     $('gscore').textContent = `${s.games} · ${s.correct}`;
     $('gemg').textContent = !s.emg ? 'not connected' : `${s.emg.active ? 'ACTIVE' : s.emg.ready ? 'relaxed' : 'baseline…'} · ${Math.round(s.emg.env ?? 0)} / ${s.emg.thr != null ? Math.round(s.emg.thr) : '–'} ADC (${s.emg.source})${s.emg.use ? '' : ' · not confirming'}`;
     $('gemg').style.color = s.emg?.active ? '#f2b134' : '';
+    $('gstand').textContent = !s.emg ? '–' : (s.emg.stand || (s.emg.stand === '' ? 'seated' : '–'));
+    if (s.emg) {
+      if (s.emg.now < g.emgNow - 1) { g.emg = []; g.emgEv = []; }            // game page reloaded
+      g.emgNow = s.emg.now;
+      for (const r of s.emg.series || []) if (!g.emg.length || r[0] > g.emg[g.emg.length - 1][0]) g.emg.push(r);
+      for (const e of s.emg.events || []) g.emgEv.push(e);
+      g.emg = g.emg.filter(r => r[0] > g.emgNow - 30); g.emgEv = g.emgEv.filter(e => e[0] > g.emgNow - 30);
+      drawEmg();
+    }
     if (m.result && m.live) g.pts.push({ t, raw: s.raw, ok: s.valid && !s.blink, ema: s.pupil, base: s.baseline, lvl });
     g.pts = g.pts.filter(p => p.t > t - 60);
     drawG(t);
+  }
+  function drawEmg() {
+    const c = $('gemgchart'), dpr = devicePixelRatio || 1, W = c.clientWidth, H = c.clientHeight;
+    if (c.width !== W * dpr) { c.width = W * dpr; c.height = H * dpr; }
+    const x = c.getContext('2d'); x.setTransform(dpr, 0, 0, dpr, 0, 0); x.clearRect(0, 0, W, H);
+    const pts = g.emg.filter(r => r[1] != null);
+    if (!pts.length) { x.fillStyle = '#9aa1b1'; x.font = '13px system-ui'; x.fillText('EMG not connected in the game', 10, 20); return; }
+    const vals = pts.flatMap(r => [r[1], r[2]]).filter(v => v != null);
+    let lo = Math.min(...vals), hi = Math.max(...vals); const pad = Math.max(5, (hi - lo) * 0.12); lo -= pad; hi += pad;
+    const L = 40, X = t => L + (W - L - 6) * (1 - (g.emgNow - t) / 30), Y = v => 14 + (H - 34) * (1 - (v - lo) / (hi - lo));
+    x.strokeStyle = '#2a2f3a'; x.fillStyle = '#9aa1b1'; x.font = '11px system-ui'; x.lineWidth = 1;
+    for (let k = 0; k <= 4; k++) { const v = lo + (hi - lo) * k / 4, y = Y(v); x.beginPath(); x.moveTo(L, y); x.lineTo(W, y); x.stroke(); x.fillText(v.toFixed(0), 2, y + 4); }
+    x.fillText('−30 s', L, H - 4); x.fillText('now', W - 26, H - 4);
+    x.setLineDash([5, 4]); x.strokeStyle = '#e5484d'; x.beginPath(); let on = false;      // threshold
+    for (const r of pts) { if (r[2] == null) { on = false; continue; } on ? x.lineTo(X(r[0]), Y(r[2])) : x.moveTo(X(r[0]), Y(r[2])); on = true; }
+    x.stroke(); x.setLineDash([]); x.lineWidth = 2;
+    for (let i = 1; i < pts.length; i++) {                                                // envelope
+      const a = pts[i - 1], b = pts[i]; if (b[0] - a[0] > 0.5) continue;
+      x.strokeStyle = b[3] ? '#f2b134' : '#5b8def'; x.beginPath(); x.moveTo(X(a[0]), Y(a[1])); x.lineTo(X(b[0]), Y(b[1])); x.stroke();
+    }
+    const mark = { stand_candidate: ['▲', '#f2b134'], confirm: ['✓', '#2fbf71'], confirm_warmup: ['✓', '#2fbf71'], seated: ['●', '#5b8def'], sit_timeout: ['●', '#9aa1b1'], rejected: ['✗', '#e5484d'] };
+    x.font = 'bold 14px system-ui'; x.textAlign = 'center';
+    for (const [t, type] of g.emgEv) { const m = mark[type]; if (!m) continue; x.fillStyle = m[1]; x.fillText(m[0], X(t), 12); }
+    x.textAlign = 'start';
   }
   function drawG(t) {
     const c = $('gchart'), dpr = devicePixelRatio || 1, W = c.clientWidth, H = c.clientHeight;
