@@ -174,25 +174,55 @@
   #ps-final .eyebrow{font-size:12px;letter-spacing:.14em;font-weight:800;color:#267B53;margin:0}
   #ps-final h1{font-size:44px;margin:6px 0 20px}
   #ps-final h2{font-size:20px;margin:0 0 6px}
-  .ps-fcards{display:grid;grid-template-columns:2fr 1fr;gap:18px;margin-bottom:18px}
+  .ps-fcards{display:grid;grid-template-columns:2fr 1fr;gap:18px;margin-bottom:34px}
   .ps-fcard{background:#fff;border:1px solid #DDE2DB;border-radius:18px;padding:22px 26px;display:flex;flex-direction:column;gap:4px}
   .ps-fcard span{font-size:14px;font-weight:700;color:#5D6B62;text-transform:uppercase;letter-spacing:.08em}
   .ps-fcard strong{font-size:64px;line-height:1;color:#1D6041;font-weight:900}
   .ps-fscore strong{color:#E99A2E;font-size:84px}
   .ps-fcard em{font-style:normal;font-size:22px;font-weight:700}
   .ps-fcard small{font-size:16px;color:#5D6B62}
+  .ps-qhead{border-top:1px solid #DDE2DB;padding-top:26px;margin-bottom:14px}
+  #ps-final .ps-qtitle{font-size:28px;letter-spacing:-.02em;margin:6px 0 8px}
+  .ps-qwarn{background:#FBEBCB;color:#7A5410;border-radius:12px;padding:12px 16px;font-size:15px;font-weight:600;margin-bottom:16px}
+  .ps-qtiles{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:18px}
+  .ps-qtile{background:#fff;border:1px solid #DDE2DB;border-radius:14px;padding:16px 18px;display:flex;flex-direction:column;gap:4px}
+  .ps-qtile span{font-size:12px;font-weight:700;color:#5D6B62;text-transform:uppercase;letter-spacing:.07em}
+  .ps-qtile strong{font-size:30px;line-height:1.1;font-weight:850;color:#28362F;font-variant-numeric:tabular-nums}
+  .ps-qtile small{font-size:13px;color:#5D6B62;line-height:1.35}
+  @media (max-width:1000px){.ps-qtiles{grid-template-columns:1fr 1fr}}
+  .ps-step{float:left;width:30px;height:30px;margin:-3px 12px 0 0;border-radius:50%;background:#267B53;color:#fff;font:800 15px/30px Inter,Arial,sans-serif;text-align:center}
   .ps-fpanel{background:#fff;border:1px solid #DDE2DB;border-radius:18px;padding:22px 26px;margin-bottom:18px}
   .ps-fnote{font-size:14px;color:#5D6B62;margin:0 0 12px;line-height:1.5}
-  #ps-final .ps-ftable{width:100%;border-collapse:collapse;font-size:18px !important}
-  #ps-final .ps-ftable th{text-align:left;font-size:13px !important;color:#5D6B62;font-weight:700;padding:8px 10px;border-bottom:2px solid #DDE2DB;letter-spacing:.06em}
-  #ps-final .ps-ftable td{padding:13px 10px;border-bottom:1px solid #EEF0EC;font-size:18px !important;color:#28362F}
-  #ps-final .ps-ftable td b{font-size:18px !important}
-  .ps-fbar{display:inline-block;width:200px;height:14px;background:#F1F3EF;border-radius:6px;margin-right:10px;vertical-align:middle;overflow:hidden}
-  .ps-fbar i{display:block;height:100%;border-radius:6px}
+  .ps-empty{color:#8A968E;font-size:15px;padding:30px 0;text-align:center}
+  .ps-svg{width:100%;height:auto;display:block;font-family:Inter,"Segoe UI",Arial,sans-serif}
+  .ps-svg .ax{font-size:12px;fill:#5D6B62}.ps-svg .ax.ink{fill:#28362F;font-weight:600}
+  .ps-svg .val{font-size:15px;font-weight:800;fill:#28362F}.ps-svg .lvl{font-size:14px;font-weight:700;fill:#28362F}
+  .ps-svg .trk{font-size:13px;font-weight:700;fill:#28362F}
+  .ps-svg .mk{font-size:12px;font-weight:800;fill:#fff;pointer-events:none}
+  .ps-svg .arr{font-size:16px;font-weight:800;fill:#28362F;pointer-events:none}
+  .ps-svg .ok{font-size:18px;font-weight:800}.ps-svg .ok.yes{fill:#267B53}.ps-svg .ok.no{fill:#C2412D}
+  .ps-svg .col{fill:transparent}.ps-svg .col:hover{fill:#28362F0D}
+  .ps-svg *{pointer-events:none}.ps-svg [data-tip]{pointer-events:all;cursor:default}
+  .ps-legend{display:flex;flex-wrap:wrap;gap:8px 20px;font-size:13px;color:#5D6B62;margin-top:6px}
+  .ps-legend span{display:inline-flex;align-items:center;gap:6px}
+  .ps-legend i,#ps-final i.chip{display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;border-radius:50%;color:#fff;font:800 11px Inter,Arial,sans-serif;font-style:normal;flex:none}
+  #ps-final i.chip{margin-right:8px;vertical-align:-4px}
+  .ps-legend b.ok{font-size:15px}.ps-legend b.ok.yes{color:#267B53}.ps-legend b.ok.no{color:#C2412D}
+  #ps-final .ps-ftable{width:100%;border-collapse:collapse;font-size:16px !important}
+  #ps-final .ps-ftable th{text-align:left;font-size:12px !important;color:#5D6B62;font-weight:700;padding:8px 10px;border-bottom:2px solid #DDE2DB;letter-spacing:.06em;text-transform:uppercase}
+  #ps-final .ps-ftable td{padding:11px 10px;border-bottom:1px solid #EEF0EC;font-size:16px !important;color:#28362F;font-variant-numeric:tabular-nums}
+  #ps-final .ps-ftable td b{font-size:16px !important}
+  #ps-final .ps-ftable td.muted,#ps-final .ps-ftable .muted{color:#5D6B62;font-size:14px !important}
+  #ps-final .ps-dtable td{font-size:15px !important}
+  #ps-final .ps-dtable tr.nochip td:first-child{padding-left:38px}
+  #ps-final .cnt{display:inline-flex;align-items:center;margin-right:14px}#ps-final .cnt i.chip{margin-right:5px}
+  .ps-details summary{font-size:17px;font-weight:700;cursor:pointer}.ps-details[open] summary{margin-bottom:10px}
   .ps-flink{background:none;border:0;color:#267B53;font:inherit;font-weight:700;text-decoration:underline;cursor:pointer}
   #ps-prompt{position:fixed;left:50%;bottom:clamp(14px,4svh,40px);transform:translateX(-50%);z-index:8950;display:none;
     background:#1D6041;color:#fff;font:800 clamp(24px,3.6svh,40px)/1.2 Inter,"Segoe UI",Arial,sans-serif;padding:14px 34px;border-radius:999px;
     box-shadow:0 8px 24px rgba(0,0,0,.18);pointer-events:none;white-space:nowrap}
+  #ps-ftip{position:fixed;z-index:9800;display:none;max-width:360px;white-space:pre-line;padding:10px 12px;border-radius:10px;background:#28362F;color:#fff;
+    font:500 13px/1.45 Inter,"Segoe UI",Arial,sans-serif;box-shadow:0 6px 20px rgba(0,0,0,.18);pointer-events:none}
   #ps-dwell{position:fixed;z-index:8900;height:10px;border-radius:6px;background:#267B53;display:none;pointer-events:none}
   body.ps-hidden-level #ps-level,body.ps-hidden-level #ps-meta,body.ps-hidden-level #ps-diff{visibility:hidden}`;
   document.head.insertAdjacentHTML('beforeend', `<style>${css}</style>`);
@@ -1103,103 +1133,302 @@
   }
   const levelOf = idx => !isFinite(idx) ? null : idx < CFG.t1 ? 'low' : idx < CFG.t2 ? 'medium' : 'high';
   // ------------------------------------------------------- final page ----
-  // Replaces the game's end dashboard with: score + pupil dilation through every game, shaded by level.
+  // Replaces the game's end dashboard. Built to answer Q2 directly:
+  //   per round: Find-screen pupil = median of valid readings from 0.5 s after the cards appeared until the bus
+  //   was locked, minus this participant's Find baseline (Δ mm); Δ averaged per level; plus the level decisions
+  //   the pupil rule made live. Everything is within this participant only.
+  const WL = {
+    low:    { c: '#3E8E63', k: 'L', name: 'LOW' },
+    medium: { c: '#D9952B', k: 'M', name: 'MEDIUM' },
+    high:   { c: '#C2412D', k: 'H', name: 'HIGH' },
+    none:   { c: '#A9B2AB', k: '–', name: 'No reading' },
+  };
+  const sgn = (v, d = 2) => (v == null || !isFinite(v)) ? '–' : (v > 0 ? '+' : v < 0 ? '−' : '') + Math.abs(v).toFixed(d);
+  const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const decisionOf = t => t.level_reason === 'adaptive off' ? 'off' : !t.correct ? 'wrong' : (t.search_level || 'none');
+  const DECISIONS = [
+    { key: 'low',    rule: 'Correct + LOW',                rule2: `level up after ${DIFF.upAfter} in a row`, pupil: true },
+    { key: 'medium', rule: 'Correct + MEDIUM',             rule2: 'stay', pupil: true },
+    { key: 'high',   rule: 'Correct + HIGH',               rule2: 'level down', pupil: true },
+    { key: 'none',   rule: 'Correct, no reliable reading', rule2: 'stay (pupil paused)', pupil: false },
+    { key: 'wrong',  rule: 'Wrong answer',                 rule2: 'level down (accuracy, not pupil)', pupil: false },
+    { key: 'off',    rule: 'Adaptive difficulty off',      rule2: 'no change', pupil: false },
+  ];
+
   function hideFinal() {
     document.getElementById('ps-final')?.remove();
+    document.getElementById('ps-ftip')?.remove();
     const m = document.querySelector('#dashboardScreen .dashboard-main'); if (m) m.style.display = '';
   }
   function showFinal() {
+    renderFinal({ trials, samples, baseline, participant: ($('ps-pid')?.value || session.participant || '').trim() });
+  }
+  function q2Rows(T) {
+    return T.map((t, i) => {
+      const pupil = isFinite(t.search_pupil) ? t.search_pupil : null;
+      const base = isFinite(t.base_search) ? t.base_search : null;
+      return { i, t, set: t.set, rep: t.rep, level: t.level_played, correct: !!t.correct, pupil, base,
+               delta: pupil != null && base != null ? pupil - base : null, valid: t.search_valid,
+               wl: t.search_level || null, dec: decisionOf(t), change: t.level_change ?? 0, next: t.level_next,
+               reason: t.level_reason || '', med: t.thr_med, high: t.thr_high, searchS: t.searchTimeMs != null ? t.searchTimeMs / 1000 : null };
+    });
+  }
+  function roundTip(r) {
+    const w = WL[r.wl || 'none'];
+    return [`Set ${r.set} · round ${r.rep} · Level ${r.level} (${LEVELS[r.level]?.label || ''})`,
+            `Find pupil ${fmt(r.pupil)} mm · baseline ${fmt(r.base)} mm`,
+            `Change ${sgn(r.delta)} mm → ${w.name}` + (isFinite(r.med) ? ` (MEDIUM ≥ +${r.med.toFixed(2)}, HIGH ≥ +${r.high.toFixed(2)})` : ''),
+            `${r.correct ? 'Correct' : 'Wrong'} · usable readings ${r.valid != null && isFinite(r.valid) ? Math.round(r.valid * 100) + '%' : '–'}`,
+            `Decision: ${r.reason || '–'}${r.next != null ? ` → next level ${r.next}` : ''}`].join('\n');
+  }
+
+  // Q2 figure 1: pupil change by level — every round as a dot, mean per level as a bar
+  function svgByLevel(rows, thr) {
+    const lv = [...new Set(rows.map(r => r.level))].filter(v => v != null).sort((a, b) => a - b);
+    const W = 1100, H = 360, L = 74, R = 150, TOP = 22, B = 62, pw = W - L - R, ph = H - TOP - B;
+    const bw = pw / Math.max(1, lv.length);
+    const vals = rows.map(r => r.delta).filter(v => v != null).concat([0], thr ? [thr.med, thr.high] : []);
+    let lo = Math.min(...vals), hi = Math.max(...vals); const pad = Math.max(0.04, (hi - lo) * 0.12); lo -= pad; hi += pad;
+    const Y = v => TOP + ph * (1 - (v - lo) / (hi - lo));
+    let s = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Find-screen pupil change by difficulty level" class="ps-svg">`;
+    for (let k = 0; k <= 4; k++) {
+      const v = lo + (hi - lo) * k / 4, y = Y(v);
+      s += `<line x1="${L}" x2="${W - R}" y1="${y}" y2="${y}" stroke="#0000000F"/><text x="${L - 8}" y="${y + 4}" text-anchor="end" class="ax">${sgn(v)}</text>`;
+    }
+    s += `<text transform="translate(14 ${TOP + ph / 2}) rotate(-90)" text-anchor="middle" class="ax">Pupil change vs Find baseline (mm)</text>`;
+    const ref = (v, col, dash, label) => {
+      if (v == null || !isFinite(v)) return '';
+      return `<line x1="${L}" x2="${W - R}" y1="${Y(v)}" y2="${Y(v)}" stroke="${col}" stroke-width="1.5" ${dash ? 'stroke-dasharray="6 5"' : ''}/>` +
+             `<text x="${W - R + 8}" y="${Y(v) + 4}" class="ax ink">${label}</text>`;
+    };
+    s += ref(0, '#28362F', false, 'Baseline (0)');
+    if (thr) { s += ref(thr.med, WL.medium.c, true, `MEDIUM ≥ +${thr.med.toFixed(2)}`) + ref(thr.high, WL.high.c, true, `HIGH ≥ +${thr.high.toFixed(2)}`); }
+    const means = [];
+    lv.forEach((level, j) => {
+      const cx = L + bw * (j + 0.5), g = rows.filter(r => r.level === level), d = g.filter(r => r.delta != null);
+      const step = Math.min(22, (bw * 0.5) / Math.max(1, d.length));
+      d.forEach((r, k) => {
+        const x = cx + (k - (d.length - 1) / 2) * step, y = Y(r.delta);
+        s += `<circle cx="${x}" cy="${y}" r="7" fill="#28362F" fill-opacity=".5" stroke="#fff" stroke-width="2"/>` +
+             `<circle cx="${x}" cy="${y}" r="13" fill="transparent" data-tip="${esc(roundTip(r))}"/>`;
+      });
+      const m = d.length ? mean(d.map(r => r.delta)) : null;
+      if (m != null) {
+        means.push([cx, Y(m)]);
+        const hw = Math.min(70, bw * 0.32);
+        s += `<line x1="${cx - hw}" x2="${cx + hw}" y1="${Y(m)}" y2="${Y(m)}" stroke="#267B53" stroke-width="4" stroke-linecap="round"/>` +
+             `<text x="${cx + hw + 6}" y="${Y(m) + 5}" class="val">${sgn(m)}</text>`;
+      }
+      s += `<text x="${cx}" y="${H - B + 22}" text-anchor="middle" class="lvl">Level ${level}</text>` +
+           `<text x="${cx}" y="${H - B + 40}" text-anchor="middle" class="ax">${d.length} of ${g.length} round${g.length === 1 ? '' : 's'} usable</text>`;
+    });
+    if (means.length > 1) s += `<path d="${means.map((p, k) => (k ? 'L' : 'M') + p[0] + ',' + p[1]).join('')}" fill="none" stroke="#267B53" stroke-width="1.5" stroke-opacity=".55"/>`;
+    return s + '</svg>';
+  }
+
+  // Q2 figure 2: round by round — level played (top track) and the Find-screen change that drove the decision (bottom track)
+  function svgRounds(rows, thr) {
+    const n = rows.length, W = 1100, L = 74, R = 120, pw = W - L - R, cw = pw / Math.max(1, n);
+    const T1 = 34, H1 = 150, T2 = T1 + H1 + 44, H2 = 170, BOT = T2 + H2, H = BOT + 58;
+    const maxLv = LEVELS.length - 1, Y1 = l => T1 + H1 * (1 - (l - 0.5) / maxLv);
+    const vals = rows.map(r => r.delta).filter(v => v != null).concat([0], thr ? [thr.med, thr.high] : []);
+    let lo = Math.min(...vals), hi = Math.max(...vals); const pad = Math.max(0.04, (hi - lo) * 0.12); lo -= pad; hi += pad;
+    const Y2 = v => T2 + H2 * (1 - (v - lo) / (hi - lo));
+    const X = i => L + cw * (i + 0.5);
+    let s = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Level played and Find-screen pupil change in every round" class="ps-svg">`;
+    // column hover targets (drawn first, under the marks)
+    rows.forEach((r, i) => { s += `<rect class="col" x="${L + cw * i + 1}" y="${T1 - 22}" width="${cw - 2}" height="${BOT - T1 + 72}" rx="6" data-tip="${esc(roundTip(r))}"/>`; });
+    // track 1: level played
+    for (let l = 1; l <= maxLv; l++) s += `<line x1="${L}" x2="${W - R}" y1="${Y1(l)}" y2="${Y1(l)}" stroke="#0000000F"/><text x="${L - 10}" y="${Y1(l) + 4}" text-anchor="end" class="ax">Lv ${l}</text>`;
+    s += `<text x="${L}" y="${T1 - 14}" class="trk">Level played · marker = pupil rule reading (L / M / H)</text>`;
+    let path = '';
+    rows.forEach((r, i) => {
+      const x0 = L + cw * i, x1 = x0 + cw, y = Y1(r.level);
+      path += (i ? `L${x0},${y}` : `M${x0},${y}`) + `L${x1},${y}`;
+    });
+    if (n) s += `<path d="${path}" fill="none" stroke="#28362F" stroke-opacity=".35" stroke-width="2"/>`;
+    rows.forEach((r, i) => {
+      const w = WL[r.wl || 'none'], x = X(i), y = Y1(r.level);
+      s += `<circle cx="${x}" cy="${y}" r="12" fill="${w.c}" stroke="#fff" stroke-width="2"/><text x="${x}" y="${y + 4.5}" text-anchor="middle" class="mk">${w.k}</text>`;
+      const arrow = r.change > 0 ? '↑' : r.change < 0 ? '↓' : '';
+      if (arrow) s += `<text x="${x + 17}" y="${y + 5}" class="arr">${arrow}</text>`;
+    });
+    // track 2: Find-screen change per round
+    s += `<text x="${L}" y="${T2 - 14}" class="trk">Find-screen pupil change vs baseline (mm)</text>`;
+    for (let k = 0; k <= 3; k++) { const v = lo + (hi - lo) * k / 3; s += `<line x1="${L}" x2="${W - R}" y1="${Y2(v)}" y2="${Y2(v)}" stroke="#0000000F"/><text x="${L - 10}" y="${Y2(v) + 4}" text-anchor="end" class="ax">${sgn(v)}</text>`; }
+    const ref = (v, col, dash, label) => (v == null || !isFinite(v)) ? '' :
+      `<line x1="${L}" x2="${W - R}" y1="${Y2(v)}" y2="${Y2(v)}" stroke="${col}" stroke-width="1.5" ${dash ? 'stroke-dasharray="6 5"' : ''}/><text x="${W - R + 8}" y="${Y2(v) + 4}" class="ax ink">${label}</text>`;
+    s += ref(0, '#28362F', false, 'Baseline');
+    if (thr) s += ref(thr.med, WL.medium.c, true, `MEDIUM +${thr.med.toFixed(2)}`) + ref(thr.high, WL.high.c, true, `HIGH +${thr.high.toFixed(2)}`);
+    const bwid = Math.min(30, cw * 0.46);
+    rows.forEach((r, i) => {
+      const x = X(i);
+      if (r.delta == null) { s += `<text x="${x}" y="${Y2(0) - 8}" text-anchor="middle" class="ax">no reading</text>`; return; }
+      const y0 = Y2(0), y1 = Y2(r.delta), top = Math.min(y0, y1), h = Math.max(2, Math.abs(y1 - y0));
+      s += `<rect x="${x - bwid / 2}" y="${top}" width="${bwid}" height="${h}" rx="3" fill="${WL[r.wl || 'none'].c}"/>`;
+    });
+    // set separators + round labels + correctness
+    rows.forEach((r, i) => {
+      const x = X(i);
+      if (i && r.set !== rows[i - 1].set) s += `<line x1="${L + cw * i}" x2="${L + cw * i}" y1="${T1 - 8}" y2="${BOT + 50}" stroke="#28362F" stroke-opacity=".35" stroke-dasharray="3 4"/><text x="${L + cw * i + 6}" y="${T1 - 0}" class="ax">Set ${r.set}</text>`;
+      s += `<text x="${x}" y="${BOT + 22}" text-anchor="middle" class="ax">${r.set}·${r.rep}</text>` +
+           `<text x="${x}" y="${BOT + 46}" text-anchor="middle" class="ok ${r.correct ? 'yes' : 'no'}">${r.correct ? '✓' : '✗'}</text>`;
+    });
+    if (n && rows[0]) s += `<text x="${L + 6}" y="${T1 - 0}" class="ax">Set ${rows[0].set}</text>`;
+    return s + '</svg>';
+  }
+
+  function renderFinal(D) {
     const scr = document.getElementById('dashboardScreen'), main = scr?.querySelector('.dashboard-main');
     if (!scr || !main) return;
     hideFinal(); main.style.display = 'none';
-    const T = trials.slice(), n = T.length, nOK = T.filter(t => t.correct).length;
-    const hasBase = !!baseline;
-    const baseFor = ph => !baseline ? null : ph === 'memory' ? baseline.memory.pupil : baseline.search.pupil;
-    // per game: pupil trace (1 s medians of valid readings) during Remember + Find
-    const games = T.map(t => {
-      const t0 = t.memStart, t1 = t.emgAt ?? t.lockAt ?? t0 + 1, bins = new Map();
-      for (const x of samples) {
-        if (x.t < t0 || x.t > t1 || !x.valid || x.postMove || !['memory', 'search', 'confirm'].includes(x.phase)) continue;
-        const b = baseFor(x.phase), v = hasBase ? x.pupil - b : x.pupil, k = Math.floor((x.t - t0) / 1);
-        (bins.get(k) || bins.set(k, []).get(k)).push(v);
-      }
-      const pts = [...bins.entries()].sort((a, b) => a[0] - b[0]).map(([k, v]) => [(k + 0.5) / Math.max(1, t1 - t0), median(v)]);
-      const find = hasBase && isFinite(t.search_pupil) ? t.search_pupil - t.base_search : (isFinite(t.search_pupil) ? t.search_pupil : null);
-      return { t, pts, find, split: t.searchStart ? (t.searchStart - t0) / Math.max(1, t1 - t0) : null };
+    const T = (D.trials || []).slice(), SM = D.samples || [], BL = D.baseline || null;
+    const n = T.length, nOK = T.filter(t => t.correct).length;
+    const rows = q2Rows(T);
+    const usable = rows.filter(r => r.delta != null);
+    // thresholds: values recorded with each round (fall back to the current settings)
+    const lastThr = [...rows].reverse().find(r => isFinite(r.med) && isFinite(r.high));
+    const thr = lastThr ? { med: lastThr.med, high: lastThr.high } : (BL ? thresholdsFor(BL.search) : null);
+    const thrChanged = new Set(rows.filter(r => isFinite(r.med)).map(r => r.med.toFixed(3) + '/' + r.high.toFixed(3))).size > 1;
+    // per level
+    const lvls = [...new Set(T.map(t => t.level_played))].filter(v => v != null).sort((a, b) => a - b);
+    const byLevel = lvls.map(lv => {
+      const g = rows.filter(r => r.level === lv), d = g.map(r => r.delta).filter(v => v != null);
+      return { lv, name: LEVELS[lv]?.label || '', n: g.length, ok: g.filter(r => r.correct).length, k: d.length,
+               mean: d.length ? mean(d) : null, sd: d.length > 1 ? Math.sqrt(d.reduce((a, v) => a + (v - mean(d)) ** 2, 0) / (d.length - 1)) : null,
+               low: g.filter(r => r.wl === 'low').length, med: g.filter(r => r.wl === 'medium').length, high: g.filter(r => r.wl === 'high').length };
     });
-    const unit = hasBase ? 'Δ mm vs baseline' : 'mm';
-    // ---- chart: one slot per game, shaded by difficulty level
-    const W = 1100, H = 330, L = 64, R = 16, TOP = 34, B = 64, cw = (W - L - R) / Math.max(1, n);
-    const vals = games.flatMap(g => g.pts.map(p => p[1])).filter(isFinite).concat(hasBase ? [0] : []);
-    let lo = vals.length ? Math.min(...vals) : 0, hi = vals.length ? Math.max(...vals) : 1;
-    const pad = Math.max(0.05, (hi - lo) * 0.12); lo -= pad; hi += pad;
-    const Y = v => TOP + (H - TOP - B) * (1 - (v - lo) / (hi - lo));
-    const shade = ['#ffffff', '#EEF6F0', '#DDEEE2', '#FBEFD9', '#F7E0C0', '#F3CFAE', '#EDB9A0'];
-    let svg = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Pupil dilation in every game" style="width:100%;height:auto;display:block">`;
-    // level bands (consecutive games at the same level)
-    for (let i = 0; i < n;) {
-      let j = i; const lv = T[i].level_played; while (j + 1 < n && T[j + 1].level_played === lv) j++;
-      const x0 = L + i * cw, x1 = L + (j + 1) * cw;
-      svg += `<rect x="${x0}" y="${TOP}" width="${x1 - x0}" height="${H - TOP - B}" fill="${shade[lv] || '#eee'}"/>`;
-      svg += `<text x="${(x0 + x1) / 2}" y="${TOP - 10}" text-anchor="middle" font-size="15" font-weight="700" fill="#1D6041">Level ${lv}</text>`;
-      i = j + 1;
-    }
-    // y grid
-    for (let k = 0; k <= 4; k++) {
-      const v = lo + (hi - lo) * k / 4, y = Y(v);
-      svg += `<line x1="${L}" x2="${W - R}" y1="${y}" y2="${y}" stroke="#00000014"/><text x="${L - 8}" y="${y + 4}" text-anchor="end" font-size="12" fill="#5D6B62">${(hasBase && v > 0 ? '+' : '') + v.toFixed(2)}</text>`;
-    }
-    if (hasBase) svg += `<line x1="${L}" x2="${W - R}" y1="${Y(0)}" y2="${Y(0)}" stroke="#28362F" stroke-dasharray="6 5" stroke-width="1.5"/><text x="${W - R - 4}" y="${Y(0) - 6}" text-anchor="end" font-size="12" fill="#28362F">baseline</text>`;
-    svg += `<text transform="translate(16 ${(TOP + H - B) / 2}) rotate(-90)" text-anchor="middle" font-size="13" fill="#5D6B62">Pupil ${unit}</text>`;
-    // traces + game labels
-    games.forEach((g, i) => {
-      const x0 = L + i * cw;
-      if (i) svg += `<line x1="${x0}" x2="${x0}" y1="${TOP}" y2="${H - B}" stroke="#ffffffcc" stroke-width="2"/>`;
-      if (g.split != null) svg += `<line x1="${x0 + g.split * cw}" x2="${x0 + g.split * cw}" y1="${TOP}" y2="${H - B}" stroke="#00000018" stroke-dasharray="2 4"/>`;
-      const d = g.pts.map((p, k) => `${k ? 'L' : 'M'}${(x0 + 4 + p[0] * (cw - 8)).toFixed(1)},${Y(p[1]).toFixed(1)}`).join('');
-      if (d) svg += `<path d="${d}" fill="none" stroke="#267B53" stroke-width="2.5" stroke-linejoin="round"/>` +
-        g.pts.map(p => `<circle cx="${(x0 + 4 + p[0] * (cw - 8)).toFixed(1)}" cy="${Y(p[1]).toFixed(1)}" r="3" fill="#267B53"/>`).join('');
-      else svg += `<text x="${x0 + cw / 2}" y="${H - B - 10}" text-anchor="middle" font-size="12" fill="#8A968E">no reading</text>`;
-      const ok = g.t.correct;
-      svg += `<text x="${x0 + cw / 2}" y="${H - B + 22}" text-anchor="middle" font-size="13" fill="#5D6B62">${g.t.set}·${g.t.rep}</text>`;
-      svg += `<text x="${x0 + cw / 2}" y="${H - B + 46}" text-anchor="middle" font-size="20" font-weight="800" fill="${ok ? '#267B53' : '#C2412D'}">${ok ? '✓' : '✗'}</text>`;
-    });
-    svg += `</svg>`;
-    // ---- per level summary
-    const lvls = [...new Set(T.map(t => t.level_played))].sort((a, b) => a - b);
-    const rows = lvls.map(lv => {
-      const g = games.filter(x => x.t.level_played === lv), f = g.map(x => x.find).filter(v => v != null && isFinite(v));
-      return { lv, name: LEVELS[lv]?.label || '', n: g.length, ok: g.filter(x => x.t.correct).length, find: f.length ? mean(f) : null };
-    });
-    const fmax = Math.max(0.05, ...rows.map(r => Math.abs(r.find ?? 0)));
-    const bar = v => v == null ? '<span style="color:#8A968E">no reading</span>' : hasBase
-      ? `<span class="ps-fbar"><i style="width:${Math.min(100, Math.abs(v) / fmax * 100)}%;background:${v >= 0 ? '#E99A2E' : '#7FA88F'}"></i></span><b>${v >= 0 ? '+' : ''}${v.toFixed(2)} mm</b>`
-      : `<b>${v.toFixed(2)} mm</b>`;
+    const withMean = byLevel.filter(r => r.mean != null);
+    // decisions
+    const dec = DECISIONS.map(d => {
+      const g = rows.filter(r => r.dec === d.key);
+      return { ...d, n: g.length, up: g.filter(r => r.change > 0).length, down: g.filter(r => r.change < 0).length, stay: g.filter(r => !r.change).length };
+    }).filter(d => d.n || ['low', 'medium', 'high', 'wrong'].includes(d.key));
+    const pupilDriven = dec.filter(d => d.pupil).reduce((a, d) => a + d.n, 0);
+    const ups = rows.filter(r => r.change > 0).length, downs = rows.filter(r => r.change < 0).length;
     const sets = [...new Set(T.map(t => t.set))].map(sv => { const g = T.filter(t => t.set === sv); return `Set ${sv}: ${g.filter(t => t.correct).length} / ${g.length}`; }).join(' · ');
     const best = n ? Math.max(...T.map(t => t.level_played)) : '–';
+    const pid = D.participant || '';
+
+    // per-round pupil traces (Remember + Find), kept as a secondary view
+    const traceSvg = (() => {
+      if (!n) return '';
+      const hasBase = !!BL, baseFor = ph => !BL ? null : ph === 'memory' ? BL.memory.pupil : BL.search.pupil;
+      const games = T.map(t => {
+        const t0 = t.memStart, t1 = t.emgAt ?? t.lockAt ?? t0 + 1, bins = new Map();
+        for (const x of SM) {
+          if (x.t < t0 || x.t > t1 || !x.valid || x.postMove || !['memory', 'search', 'confirm'].includes(x.phase)) continue;
+          const v = hasBase ? x.pupil - baseFor(x.phase) : x.pupil, k = Math.floor(x.t - t0);
+          (bins.get(k) || bins.set(k, []).get(k)).push(v);
+        }
+        const pts = [...bins.entries()].sort((a, b) => a[0] - b[0]).map(([k, v]) => [(k + 0.5) / Math.max(1, t1 - t0), median(v)]);
+        return { t, pts, split: t.searchStart ? (t.searchStart - t0) / Math.max(1, t1 - t0) : null };
+      });
+      const W = 1100, H = 300, L = 64, R = 16, TOP = 30, B = 40, cw = (W - L - R) / n;
+      const vals = games.flatMap(g => g.pts.map(p => p[1])).filter(isFinite).concat(hasBase ? [0] : []);
+      let lo = vals.length ? Math.min(...vals) : 0, hi = vals.length ? Math.max(...vals) : 1;
+      const pad = Math.max(0.05, (hi - lo) * 0.12); lo -= pad; hi += pad;
+      const Y = v => TOP + (H - TOP - B) * (1 - (v - lo) / (hi - lo));
+      let s = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Pupil trace in every round" class="ps-svg">`;
+      for (let k = 0; k <= 4; k++) { const v = lo + (hi - lo) * k / 4; s += `<line x1="${L}" x2="${W - R}" y1="${Y(v)}" y2="${Y(v)}" stroke="#0000000F"/><text x="${L - 8}" y="${Y(v) + 4}" text-anchor="end" class="ax">${hasBase ? sgn(v) : v.toFixed(2)}</text>`; }
+      if (hasBase) s += `<line x1="${L}" x2="${W - R}" y1="${Y(0)}" y2="${Y(0)}" stroke="#28362F" stroke-width="1.5"/>`;
+      games.forEach((g, i) => {
+        const x0 = L + i * cw;
+        if (i) s += `<line x1="${x0}" x2="${x0}" y1="${TOP}" y2="${H - B}" stroke="#0000001A"/>`;
+        if (g.split != null) s += `<line x1="${x0 + g.split * cw}" x2="${x0 + g.split * cw}" y1="${TOP}" y2="${H - B}" stroke="#00000030" stroke-dasharray="2 4"/>`;
+        const d = g.pts.map((p, k) => `${k ? 'L' : 'M'}${(x0 + 4 + p[0] * (cw - 8)).toFixed(1)},${Y(p[1]).toFixed(1)}`).join('');
+        s += d ? `<path d="${d}" fill="none" stroke="#267B53" stroke-width="2" stroke-linejoin="round"/>` : `<text x="${x0 + cw / 2}" y="${H - B - 10}" text-anchor="middle" class="ax">no reading</text>`;
+        s += `<text x="${x0 + cw / 2}" y="${TOP - 10}" text-anchor="middle" class="ax">Lv ${g.t.level_played}</text><text x="${x0 + cw / 2}" y="${H - B + 20}" text-anchor="middle" class="ax">${g.t.set}·${g.t.rep}</text>`;
+      });
+      return s + '</svg>';
+    })();
+
+    const tile = (label, value, note) => `<div class="ps-qtile"><span>${label}</span><strong>${value}</strong><small>${note}</small></div>`;
+    const lowLv = withMean[0], highLv = withMean[withMean.length - 1];
+    const legend = `<div class="ps-legend">${['low', 'medium', 'high', 'none'].map(k => `<span><i style="background:${WL[k].c}">${WL[k].k}</i>${WL[k].name}</span>`).join('')}
+      <span><b class="ok yes">✓</b>/<b class="ok no">✗</b> answer</span><span><b>↑ ↓</b> level changed after this round</span></div>`;
+
     const el = document.createElement('main'); el.id = 'ps-final';
     el.innerHTML = `
-      <p class="eyebrow">SESSION COMPLETE${$('ps-pid')?.value ? ' · ' + $('ps-pid').value.toUpperCase() : ''}</p>
+      <p class="eyebrow">SESSION COMPLETE${pid ? ' · ' + esc(pid.toUpperCase()) : ''}</p>
       <h1>Well done!</h1>
       <section class="ps-fcards">
         <div class="ps-fcard ps-fscore"><span>Score</span><strong>${nOK} / ${n}</strong><em>${n ? Math.round(nOK / n * 100) : 0}% correct</em><small>${sets}</small></div>
-        <div class="ps-fcard"><span>Highest level</span><strong>${best}</strong><em>${LEVELS[best]?.label || ''}</em></div>
+        <div class="ps-fcard"><span>Highest level</span><strong>${best}</strong><em>${esc(LEVELS[best]?.label || '')}</em></div>
       </section>
-      <section class="ps-fpanel">
-        <h2>Pupil dilation in every game</h2>
-        <p class="ps-fnote">${hasBase ? 'Above the dashed line = pupil larger than when relaxed (more mental effort).' : 'No relaxed baseline was recorded, so pupil size is shown in mm.'}
-          Each slot is one game (set·game): Remember, then Find after the dotted line. Shading = difficulty level.</p>
-        ${n ? svg : '<p>No games recorded.</p>'}
+
+      <div class="ps-qhead">
+        <p class="eyebrow">Q2 · RESEARCH VIEW · WITHIN THIS PARTICIPANT ONLY</p>
+        <h2 class="ps-qtitle">Did the pupil grow with difficulty, and what did the pupil rule decide?</h2>
+        <p class="ps-fnote">Each round: median of valid Find-screen readings from 0.5 s after the cards appeared until the bus was locked,
+          minus this participant’s Find-screen baseline. Changes are averaged per level and compared only within this participant,
+          because pupil effort measures are reliable only per person (Neagu et al., 2023).</p>
+      </div>
+      ${!BL ? '<div class="ps-qwarn">No Find-screen baseline was recorded in this session, so pupil change cannot be computed and the pupil rule could not run. Record the baseline (Pupil ▾ → Calibrate again) before the next session.</div>' : ''}
+
+      <section class="ps-qtiles">
+        ${tile('Find-screen baseline', BL ? `${fmt(BL.search.pupil)} mm` : '–', BL ? `± ${fmt(BL.search.sd)} mm · ${Math.round((BL.search.validFrac || 0) * 100)}% usable` : 'not recorded')}
+        ${tile('Rounds with a pupil reading', `${usable.length} / ${n}`, 'rounds without valid readings are left out of the means')}
+        ${tile('Mean change, lowest → highest level', withMean.length > 1 ? `${sgn(lowLv.mean)} → ${sgn(highLv.mean)}` : withMean.length ? sgn(withMean[0].mean) : '–',
+               withMean.length > 1 ? `mm · Level ${lowLv.lv} vs Level ${highLv.lv}` : withMean.length ? `mm · only Level ${withMean[0].lv} had readings` : 'no usable rounds')}
+        ${tile('Level decisions set by the pupil', `${pupilDriven} / ${n}`, `${ups} up · ${downs} down · ${n - ups - downs} stayed (all reasons)`)}
       </section>
+
       <section class="ps-fpanel">
-        <h2>By level</h2>
-        <table class="ps-ftable"><thead><tr><th>Level</th><th>Games</th><th>Correct</th><th>Pupil while searching (${hasBase ? 'vs baseline' : 'mean'})</th></tr></thead><tbody>
-        ${rows.map(r => `<tr><td><b>${r.lv}</b> ${r.name}</td><td>${r.n}</td><td>${r.ok} / ${r.n}</td><td>${bar(r.find)}</td></tr>`).join('')}
+        <p class="ps-step">1</p><h2>Pupil change by level</h2>
+        <p class="ps-fnote">Dots = single rounds · green bar and number = mean change for that level · dashed lines = the MEDIUM / HIGH thresholds the live rule used. Hover a dot for that round.${thrChanged ? ' Thresholds were changed during the session; the lines show the final values.' : ''}</p>
+        ${usable.length ? svgByLevel(rows, thr) : '<p class="ps-empty">No round had a usable Find-screen reading.</p>'}
+        <table class="ps-ftable" style="margin-top:14px"><thead><tr><th>Level</th><th>Rounds</th><th>Correct</th><th>With reading</th><th>Mean change (mm)</th><th>SD</th><th>Pupil rule read</th></tr></thead><tbody>
+        ${byLevel.map(r => `<tr><td><b>${r.lv}</b> ${esc(r.name)}</td><td>${r.n}</td><td>${r.ok} / ${r.n}</td><td>${r.k} / ${r.n}</td>
+          <td>${r.mean == null ? '<span class="muted">no reading</span>' : `<b>${sgn(r.mean)}</b>`}</td><td class="muted">${r.sd == null ? '–' : r.sd.toFixed(2)}</td>
+          <td>${[['low', r.low], ['medium', r.med], ['high', r.high]].map(([k, c]) => `<span class="cnt"><i class="chip" style="background:${WL[k].c}">${WL[k].k}</i>${c}</span>`).join('')}</td></tr>`).join('')}
         </tbody></table>
       </section>
-      <p class="ps-fnote" style="text-align:center">The full results were saved to Excel. <button class="ps-flink" type="button" id="ps-frec">Show training record</button></p>`;
+
+      <section class="ps-fpanel">
+        <p class="ps-step">2</p><h2>Level decisions the pupil rule made during the game</h2>
+        <p class="ps-fnote">Top: the level each round was played at, marked with the reading the live rule used (L / M / H). Bottom: that round’s Find-screen change — same colour, so a bar crossing a dashed line explains the decision. Hover a round for details.</p>
+        ${n ? svgRounds(rows, thr) + legend : '<p class="ps-empty">No rounds recorded.</p>'}
+        <table class="ps-ftable ps-dtable" style="margin-top:18px"><thead><tr><th>After the round</th><th>Rule</th><th>Rounds</th><th>What the level did</th></tr></thead><tbody>
+        ${dec.map(d => `<tr class="${d.key in WL ? '' : 'nochip'}"><td>${d.key in WL ? `<i class="chip" style="background:${WL[d.key].c}">${WL[d.key].k}</i>` : ''}${d.rule}</td><td class="muted">${d.rule2}</td><td><b>${d.n}</b></td>
+          <td class="muted">${d.n ? [d.up && `↑ ${d.up}`, d.down && `↓ ${d.down}`, d.stay && `= ${d.stay}`].filter(Boolean).join(' · ') : '–'}</td></tr>`).join('')}
+        </tbody></table>
+        <p class="ps-fnote" style="margin-top:12px">Rows marked L / M / H are decisions set by pupil size (${pupilDriven} of ${n} rounds); a wrong answer always lowers the level, whatever the pupil.
+          ${DIFF.upAfter > 1 ? `LOW + correct raises the level only after ${DIFF.upAfter} in a row, so some LOW rounds stay.` : ''}</p>
+      </section>
+
+      ${n ? `<details class="ps-fpanel ps-details"><summary>Pupil trace in every round (Remember + Find)</summary>
+        <p class="ps-fnote">1-s medians of valid readings, relative to each screen’s own baseline. Find starts after the dotted line. Not used for Q2.</p>${traceSvg}</details>` : ''}
+
+      <p class="ps-fnote" style="text-align:center">The full results were saved to Excel.
+        <button class="ps-flink" type="button" id="ps-fcsv">Download Q2 table (CSV)</button> ·
+        <button class="ps-flink" type="button" id="ps-frec">Show training record</button></p>`;
     main.after(el);
-    el.querySelector('#ps-frec').onclick = () => { el.remove(); main.style.display = ''; };
+
+    // shared hover tooltip
+    let tip = document.getElementById('ps-ftip');
+    if (!tip) { tip = document.createElement('div'); tip.id = 'ps-ftip'; document.body.appendChild(tip); }
+    el.addEventListener('mousemove', e => {
+      const t = e.target.closest?.('[data-tip]');
+      if (!t) { tip.style.display = 'none'; return; }
+      tip.textContent = t.getAttribute('data-tip'); tip.style.display = 'block';
+      const x = Math.min(e.clientX + 14, innerWidth - tip.offsetWidth - 8), y = e.clientY + 16 + tip.offsetHeight > innerHeight ? e.clientY - tip.offsetHeight - 10 : e.clientY + 16;
+      tip.style.left = x + 'px'; tip.style.top = y + 'px';
+    });
+    el.addEventListener('mouseleave', () => { tip.style.display = 'none'; });
+    el.querySelector('#ps-frec').onclick = () => { el.remove(); tip.remove(); main.style.display = ''; };
+    el.querySelector('#ps-fcsv').onclick = () => {
+      const head = ['participant', 'set', 'round', 'level_played', 'correct', 'find_pupil_mm', 'find_baseline_mm', 'find_change_mm', 'find_valid_frac',
+                    'pupil_reading', 'medium_threshold_mm', 'high_threshold_mm', 'decision', 'level_next', 'search_time_s'];
+      const lines = [head].concat(rows.map(r => [pid, r.set, r.rep, r.level, r.correct, fmt(r.pupil, 3), fmt(r.base, 3), r.delta == null ? '' : r.delta.toFixed(3),
+        r.valid != null && isFinite(r.valid) ? r.valid.toFixed(2) : '', r.wl ? WL[r.wl].name : '', isFinite(r.med) ? r.med.toFixed(3) : '', isFinite(r.high) ? r.high.toFixed(3) : '',
+        r.reason, r.next ?? '', r.searchS == null ? '' : r.searchS.toFixed(2)]));
+      lines.push([]); lines.push(['level', 'name', 'rounds', 'correct', 'rounds_with_reading', 'mean_change_mm', 'sd_mm', 'LOW', 'MEDIUM', 'HIGH']);
+      byLevel.forEach(r => lines.push([r.lv, r.name, r.n, r.ok, r.k, r.mean == null ? '' : r.mean.toFixed(3), r.sd == null ? '' : r.sd.toFixed(3), r.low, r.med, r.high]));
+      const csv = lines.map(l => l.map(v => `"${String(v ?? '').replace(/"/g, '""').replace(/^–$/, '')}"`).join(',')).join('\r\n');
+      const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' }));
+      a.download = `CatchYourBus_Q2_${pid || 'participant'}.csv`; document.body.appendChild(a); a.click(); a.remove();
+    };
   }
   function finaliseTrial(tr) {
     const m = windowPupil(tr.memStart, tr.searchStart ?? tr.memStart, true);
@@ -1212,6 +1441,7 @@
       mem_index: indexFor(m.pupil, 'memory'), search_index: indexFor(s.pupil, 'search'),
     });
     tr.mem_level = levelOf(tr.mem_index); tr.search_level = levelOf(tr.search_index);
+    if (baseline) { const th = thresholdsFor(baseline.search); tr.thr_med = th.med; tr.thr_high = th.high; }   // thresholds in force for this round
   }
 
   setInterval(() => { tick(); sendState(); }, 200);
@@ -1372,6 +1602,7 @@
   $('ps-xlsx').onclick = () => exportExcel(false);
 
   window.PupilSenseOverlay = { getSamples: () => samples, getTrials: () => trials, getBaseline: () => baseline,
-                               getGazeCalibration: () => gazeCal, openCalibration, simulateGaze: (x, y) => onGaze({ x, y }, true), config: CFG };
+                               getGazeCalibration: () => gazeCal, openCalibration, simulateGaze: (x, y) => onGaze({ x, y }, true), config: CFG,
+                               showFinal, previewFinal: data => renderFinal(data) };   // previewFinal({trials, samples, baseline, participant}) re-draws the end page from saved data
   console.info('[PupilSense] overlay ready');
 })();

@@ -72,7 +72,14 @@ Add `?fast=1` to the game URL for short timers when testing. Stop the server wit
 3. **Practice**: look at the bus 2 s → **stand up** → sit down → the game starts
 4. **Game** (2 sets × 5 games): remember the bus(es) → look at the matching bus 2 s → **stand up to catch it** →
    sit down → next game. Looking at another bus for 2 s changes the selection (until you start standing).
-5. **End page**: score, highest level, pupil dilation in every game (shaded by level), table by level.
+5. **End page**: score and highest level, then a **Q2 research view** (within this participant only):
+   ① *Pupil change by level* — each round's Find-screen change (median of valid readings from 0.5 s after the cards
+   appeared until the bus was locked, minus the Find baseline) as a dot, the mean per level as a bar, with the live
+   MEDIUM / HIGH thresholds; table by level (rounds, correct, rounds with a reading, mean, SD, L/M/H counts).
+   ② *Level decisions the pupil rule made* — level played in every round with the L/M/H reading, the Find change bar
+   that drove it, and a table of decisions (correct + LOW / MEDIUM / HIGH, no reading, wrong answer).
+   Hover any round for details; *Download Q2 table (CSV)* saves the per-round and per-level numbers.
+   Re-draw from saved data in the console: `PupilSenseOverlay.previewFinal({ trials, samples, baseline, participant })`.
    The Excel summary downloads automatically and is saved in `pupilsense\exports\`.
 
 ## Difficulty levels (2×2 grid, same screen brightness on every level)
